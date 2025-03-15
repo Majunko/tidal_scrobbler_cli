@@ -8,16 +8,14 @@ const tidalClientSecret = process.env.TIDAL_CLIENT_SECRET;
 let tidalAccessToken = process.env.TIDAL_ACCESS_TOKEN;
 
 const tidalPlaylistId = process.env.TIDAL_PLAYLIST_ID;
-const tidalPlaylistUrl = `https://openapi.tidal.com/v2/playlists/${tidalPlaylistId}?countryCode=US&locale=en-US&include=items`;
+const tidalPlaylistUrl = `https://openapi.tidal.com/v2/playlists/${tidalPlaylistId}/relationships/items?countryCode=US&locale=en-US`;
 
 const tidalHeaders = {
   Accept: 'application/vnd.api+json',
   Authorization: `Bearer ${tidalAccessToken}`,
 };
-
 let tidalPlaylistSongs = [];
 let currentPageTidal = 1;
-let totalPagesTidal = 1;
 
 // --- LAST.FM ---
 
@@ -109,63 +107,32 @@ async function fetchTidalData(url) {
 }
 
 // Main function to fetch playlist data and extract track/artist information
-async function getTidalPlaylistTracksWithArtists(playlistUrl) {
+async function getTidalPlaylistIds(playlistUrl) {
+  const tidalArtistsIds = [];
+
   try {
     // Fetch playlist data
     let playlistData = await fetchTidalData(playlistUrl);
     if (!playlistData) return;
 
     // Extract track details from the included array
-    const tracks = playlistData.included;
-    const attributes = playlistData.data.attributes;
+    const tracks = playlistData.data;
 
-    if (attributes?.numberOfItems) {
-      console.log(`\nFetching Tidal tracks from playlist (${attributes?.numberOfItems})...`);
-      console.log(attributes.name);
-      totalPagesTidal = parseInt(Math.ceil(attributes.numberOfItems / 20));
-    }
+    console.log(`Page: ${currentPageTidal}`);
 
-    let i = 0;
-    console.log(`\nPage: ${currentPageTidal}/${totalPagesTidal}\n`);
-
-    // Process each track
     for (const track of tracks) {
-      try {
-        const trackName = track.attributes.title;
-        const artistLink = track.relationships.artists.links.self;
-
-        // Fetch artist IDs
-        const artistResponse = await fetchTidalData(
-          `https://openapi.tidal.com/v2${artistLink}&include=artists`
-        );
-        if (!artistResponse) continue;
-
-        const artistNames = artistResponse.included.map((artist) => artist.attributes.name);
-
-        tidalPlaylistSongs.push({
-          name: trackName,
-          artist: artistNames,
-        });
-
-        i++;
-
-        // Print track and artist information
-        printSameLine(`Tidal tracks: ${i}/${tracks.length} | ${trackName} - ${artistNames.join(', ')}`);
-        await sleep(1000); // Rate limiting
-      } catch (error) {
-        console.error(`Error processing track ${track.id}:`, error.message);
-      }
+      tidalArtistsIds.push(track?.id || 0);
     }
 
-    process.stdout.write('\n');
+    await getTidalTracksWithArtists(tidalArtistsIds);
 
     // Check for next page
-    let nextPage = playlistData.data?.relationships?.items?.links?.next || playlistData?.links?.next || null;
+    let nextPage = playlistData?.links?.next || null;
 
     if (nextPage) {
       currentPageTidal++;
-      const uri = `https://openapi.tidal.com/v2${nextPage}&include=items`;
-      return await getTidalPlaylistTracksWithArtists(uri); // Recursively fetch the next page
+      const uri = `https://openapi.tidal.com/v2${nextPage}`;
+      return await getTidalPlaylistIds(uri); // Recursively fetch the next page
     } else {
       console.log('No more pages available.');
     }
@@ -173,6 +140,33 @@ async function getTidalPlaylistTracksWithArtists(playlistUrl) {
     console.error('Error Tidal API:', error.message);
   }
   console.log('');
+}
+
+// Max 20 artists per request
+async function getTidalTracksWithArtists(tidalArtistsIds) {
+  const tracksUrl = `https://openapi.tidal.com/v2/tracks?countryCode=US&filter[id]=${tidalArtistsIds.join(
+    ','
+  )}&include=artists`;
+  let tracksData = await fetchTidalData(tracksUrl);
+  if (!tracksData) return;
+
+  // Map artist IDs to their names
+  const artistMap = new Map();
+  tracksData.included.forEach((artist) => {
+    artistMap.set(artist.id, artist.attributes.name);
+  });
+
+  // Extract track names and artist names
+  tracksData.data.forEach((track) => {
+    const trackName = track.attributes.title;
+    const artistIds = track.relationships.artists.data.map((artist) => artist.id);
+    const artistNames = artistIds.map((id) => artistMap.get(id)).filter((name) => name); // Filter out undefined names
+
+    tidalPlaylistSongs.push({
+      name: trackName,
+      artist: artistNames,
+    });
+  });
 }
 
 async function getLastfmListeningHistory() {
@@ -232,7 +226,8 @@ async function compareSongsAlreadyListened(tidalTracks, lastfmTracks) {
 
 (async () => {
   // TIDAL
-  await getTidalPlaylistTracksWithArtists(tidalPlaylistUrl);
+  console.log(`Fetching Tidal playlist IDs...\n`);
+  await getTidalPlaylistIds(tidalPlaylistUrl);
 
   // LAST.FM
   let recentTracks = await getLastfmListeningHistory();
@@ -242,8 +237,5 @@ async function compareSongsAlreadyListened(tidalTracks, lastfmTracks) {
 
   const result = await compareSongsAlreadyListened(tidalPlaylistSongs, recentTracks);
   writeFileSync('listened.json', JSON.stringify(result, null, 2));
-  console.log('listened.json file generated');
+  console.log('\nlistened.json file generated');
 })();
-
-//TODO buscar todos los artistas en 1 solo request con GET /artists
-// https://openapi.tidal.com/v2/artists?countryCode=US&include=albums&filter%5Bid%5D=1566%2C7404405
