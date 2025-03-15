@@ -218,7 +218,7 @@ async function getLastfmListeningHistory() {
 }
 
 // Return the songs i've never listened to
-async function getSongsAlreadyListened(tidalTracks, lastfmTracks) {
+async function compareSongsAlreadyListened(tidalTracks, lastfmTracks) {
   // Create a Set of listened tracks from Last.fm
   const listenedTracks = new Set(
     lastfmTracks.map((track) => `${track.name.toLowerCase()}|${track.artist.toLowerCase()}`)
@@ -234,19 +234,15 @@ async function getSongsAlreadyListened(tidalTracks, lastfmTracks) {
   // TIDAL
   await getTidalPlaylistTracksWithArtists(tidalPlaylistUrl);
 
-  //console.log('----------------------------------------------------------------');
-  //process.exit();
-
   // LAST.FM
   let recentTracks = await getLastfmListeningHistory();
 
   tidalPlaylistSongs = await sortAndJoinArtists(tidalPlaylistSongs);
   recentTracks = await sortAndJoinArtists(recentTracks);
 
-  const result = await getSongsAlreadyListened(tidalPlaylistSongs, recentTracks);
-  console.log('');
-  console.log(result);
+  const result = await compareSongsAlreadyListened(tidalPlaylistSongs, recentTracks);
   writeFileSync('listened.json', JSON.stringify(result, null, 2));
+  console.log('listened.json file generated');
 })();
 
 //TODO buscar todos los artistas en 1 solo request con GET /artists
