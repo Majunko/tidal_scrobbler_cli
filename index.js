@@ -15,7 +15,9 @@ const tidalHeaders = {
   Authorization: `Bearer ${tidalAccessToken}`,
 };
 
+let tidalPlaylistSongs = [];
 let currentPageTidal = 1;
+let totalPagesTidal = 1;
 
 // --- LAST.FM ---
 
@@ -108,9 +110,6 @@ async function fetchTidalData(url) {
 
 // Main function to fetch playlist data and extract track/artist information
 async function getTidalPlaylistTracksWithArtists(playlistUrl) {
-  let songs = [];
-  let totalPages = 1;
-
   try {
     // Fetch playlist data
     let playlistData = await fetchTidalData(playlistUrl);
@@ -122,11 +121,12 @@ async function getTidalPlaylistTracksWithArtists(playlistUrl) {
 
     if (attributes?.numberOfItems) {
       console.log(`\nFetching Tidal tracks from playlist (${attributes?.numberOfItems})...`);
-      console.log(`${attributes.name}\n`);
-      totalPages = parseInt(Math.ceil(attributes.numberOfItems / 20));
+      console.log(attributes.name);
+      totalPagesTidal = parseInt(Math.ceil(attributes.numberOfItems / 20));
     }
 
     let i = 0;
+    console.log(`\nPage: ${currentPageTidal}/${totalPagesTidal}\n`);
 
     // Process each track
     for (const track of tracks) {
@@ -142,7 +142,7 @@ async function getTidalPlaylistTracksWithArtists(playlistUrl) {
 
         const artistNames = artistResponse.included.map((artist) => artist.attributes.name);
 
-        songs.push({
+        tidalPlaylistSongs.push({
           name: trackName,
           artist: artistNames,
         });
@@ -163,8 +163,8 @@ async function getTidalPlaylistTracksWithArtists(playlistUrl) {
     let nextPage = playlistData.data?.relationships?.items?.links?.next || playlistData?.links?.next || null;
 
     if (nextPage) {
+      currentPageTidal++;
       const uri = `https://openapi.tidal.com/v2${nextPage}&include=items`;
-      console.log(`\nPage: ${currentPageTidal}/${totalPages}\n`);
       return await getTidalPlaylistTracksWithArtists(uri); // Recursively fetch the next page
     } else {
       console.log('No more pages available.');
@@ -172,9 +172,7 @@ async function getTidalPlaylistTracksWithArtists(playlistUrl) {
   } catch (error) {
     console.error('Error Tidal API:', error.message);
   }
-  currentPageTidal++;
   console.log('');
-  return songs;
 }
 
 async function getLastfmListeningHistory() {
@@ -207,7 +205,7 @@ async function getLastfmListeningHistory() {
       );
 
       totalPages = parseInt(data.recenttracks['@attr'].totalPages, 10);
-      printSameLine(`page ${page}/${totalPages}`);
+      printSameLine(`Page ${page}/${totalPages}`);
       page++;
     } catch (error) {
       console.error(`\nError fetching data from ${url}:`, error.message);
@@ -233,9 +231,8 @@ async function getSongsAlreadyListened(tidalTracks, lastfmTracks) {
 }
 
 (async () => {
-
   // TIDAL
-  let tidalPlaylistSongs = await getTidalPlaylistTracksWithArtists(tidalPlaylistUrl);
+  await getTidalPlaylistTracksWithArtists(tidalPlaylistUrl);
 
   //console.log('----------------------------------------------------------------');
   //process.exit();
