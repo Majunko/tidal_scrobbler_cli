@@ -1,14 +1,14 @@
 import { writeFileSync } from 'fs';
 
 // --- TIDAL ---
-
 const tidalClientId = process.env.TIDAL_CLIENT_ID;
 const tidalClientSecret = process.env.TIDAL_CLIENT_SECRET;
 
 let tidalAccessToken = process.env.TIDAL_ACCESS_TOKEN;
 
 const tidalPlaylistId = process.env.TIDAL_PLAYLIST_ID;
-const tidalPlaylistUrl = `https://openapi.tidal.com/v2/playlists/${tidalPlaylistId}/relationships/items?countryCode=US&locale=en-US`;
+const tidalURL = 'https://openapi.tidal.com/v2';
+const tidalPlaylistUrl = `${tidalURL}/playlists/${tidalPlaylistId}/relationships/items?countryCode=US&locale=en-US`;
 
 const tidalHeaders = {
   Accept: 'application/vnd.api+json',
@@ -18,11 +18,28 @@ let tidalPlaylistSongs = [];
 let currentPageTidal = 1;
 
 // --- LAST.FM ---
-
-const LASTFM_USERNAME = process.env.LASTFM_USERNAME;
-const LASTFM_API_KEY = process.env.LASTFM_API_KEY;
+const lastFmUserName = process.env.LASTFM_USERNAME;
+const lastFmApiKey = process.env.LASTFM_API_KEY;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function checkEnvVariables() {
+  const requiredEnvVariables = [
+    'TIDAL_CLIENT_ID',
+    'TIDAL_CLIENT_SECRET',
+    'TIDAL_ACCESS_TOKEN',
+    'TIDAL_PLAYLIST_ID',
+    'LASTFM_USERNAME',
+    'LASTFM_API_KEY'
+  ];
+
+  const missingVariables = requiredEnvVariables.filter(variable => !process.env[variable]);
+
+  if (missingVariables.length > 0) {
+    console.error(`Missing environment variables: ${missingVariables.join(', ')}`);
+    process.exit(1);
+  }
+}
 
 function printSameLine(text) {
   process.stdout.clearLine(0);
@@ -106,7 +123,7 @@ async function fetchTidalData(url) {
   }
 }
 
-// Main function to fetch playlist data and extract track/artist information
+// Main function to fetch playlist data and extract track id information
 async function getTidalPlaylistIds(playlistUrl) {
   const tidalArtistsIds = [];
 
@@ -131,7 +148,7 @@ async function getTidalPlaylistIds(playlistUrl) {
 
     if (nextPage) {
       currentPageTidal++;
-      const uri = `https://openapi.tidal.com/v2${nextPage}`;
+      const uri = `${tidalURL}${nextPage}`;
       return await getTidalPlaylistIds(uri); // Recursively fetch the next page
     } else {
       console.log('No more pages available.');
@@ -144,9 +161,8 @@ async function getTidalPlaylistIds(playlistUrl) {
 
 // Max 20 artists per request
 async function getTidalTracksWithArtists(tidalArtistsIds) {
-  const tracksUrl = `https://openapi.tidal.com/v2/tracks?countryCode=US&filter[id]=${tidalArtistsIds.join(
-    ','
-  )}&include=artists`;
+  const artistsIds = tidalArtistsIds.join(',');
+  const tracksUrl = `${tidalURL}/tracks?countryCode=US&filter[id]=${artistsIds}&include=artists`;
   let tracksData = await fetchTidalData(tracksUrl);
   if (!tracksData) return;
 
@@ -177,7 +193,7 @@ async function getLastfmListeningHistory() {
   console.log('Fetching last.fm listening history...');
 
   while (page <= totalPages) {
-    const url = `https://ws.audioscrobbler.com/2.0/?method=user.getrecenttracks&user=${LASTFM_USERNAME}&api_key=${LASTFM_API_KEY}&format=json&limit=200&page=${page}`;
+    const url = `https://ws.audioscrobbler.com/2.0/?method=user.getrecenttracks&user=${lastFmUserName}&api_key=${lastFmApiKey}&format=json&limit=200&page=${page}`;
 
     try {
       const response = await fetch(url);
@@ -225,6 +241,7 @@ async function compareSongsAlreadyListened(tidalTracks, lastfmTracks) {
 }
 
 (async () => {
+  await checkEnvVariables();
   // TIDAL
   console.log(`Fetching Tidal playlist IDs...\n`);
   await getTidalPlaylistIds(tidalPlaylistUrl);
