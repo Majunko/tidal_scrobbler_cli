@@ -24,8 +24,6 @@ To use this project, you need to:
    ```bash
    git clone https://github.com/Majunko/tidal_scrobbler.git
    cd tidal_scrobbler
-   npm install
-   npm start
    ```
 
 2. Set the environment variables in the `.env` file:
