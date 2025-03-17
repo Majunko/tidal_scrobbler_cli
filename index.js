@@ -1,4 +1,4 @@
-import { writeFileSync } from 'fs';
+import { writeFileSync, readFileSync } from 'fs';
 
 // --- TIDAL ---
 const tidalClientId = process.env.TIDAL_CLIENT_ID;
@@ -16,6 +16,7 @@ const tidalHeaders = {
 };
 let tidalPlaylistSongs = [];
 let currentPageTidal = 1;
+let tidalTokenTries = 0;
 
 // --- LAST.FM ---
 const lastFmUserName = process.env.LASTFM_USERNAME;
@@ -39,6 +40,23 @@ async function checkEnvVariables() {
     console.error(`Missing environment variables: ${missingVariables.join(', ')}`);
     process.exit(1);
   }
+}
+
+async function updateEnvVariable(key, newValue) {
+  const envFilePath = '.env';
+  let envFileContent = readFileSync(envFilePath, 'utf8');
+
+  // Use a regular expression to find and replace the key-value pair
+  const regex = new RegExp(`^${key}=.*`, 'm');
+  if (regex.test(envFileContent)) {
+      envFileContent = envFileContent.replace(regex, `${key}='${newValue}'`);
+      console.log(`Updated ${key}\n`);
+  } else {
+      throw new Error(`Key ${key} not found in .env file.`);
+  }
+
+  // Write the updated content back to the .env file
+  writeFileSync(envFilePath, envFileContent);
 }
 
 function printSameLine(text) {
@@ -76,9 +94,11 @@ async function generateTidalAccessToken() {
     }),
   });
 
-  if (!response.ok) {
+  if (response.status != 200) {
     throw new Error(`HTTP error! status: ${response.status}`);
   }
+
+  tidalTokenTries++;
 
   const data = await response.json();
   return data.access_token;
@@ -103,18 +123,31 @@ async function fetchTidalData(url) {
         break;
 
       case 401:
-        printSameLine('Invalid access token. Generating new access token...');
-        tidalAccessToken = await generateTidalAccessToken();
+        tidalAccessToken = null;
+        while (tidalTokenTries < 3 && !tidalAccessToken) {
+          console.log(`Invalid access token. Generating new access token... Tries: ${tidalTokenTries}`);
+          tidalAccessToken = await generateTidalAccessToken();
+
+          if (!tidalAccessToken) {
+            console.error('Too many tries to generate a new access tokens. Exiting...');
+            process.exit(1);
+          }
+        }
+
+        tidalHeaders.Authorization = `Bearer ${tidalAccessToken}`; // Important to update the headers with the new access token
+        await updateEnvVariable('TIDAL_ACCESS_TOKEN', tidalAccessToken);
         return fetchTidalData(url); // Retry the request with the new access token
+        break;
 
       case 429:
         const retryAfter = parseInt(response.headers.get('Retry-After')) || replenishRate; // Use Retry-After or replenish rate
         printSameLine(`Too many requests, waiting ${retryAfter}s and trying again...`);
-        await sleep((retryAfter * 2 + 1) * 1000); // Convert to milliseconds
+        await sleep((retryAfter * 2) * 1000); // Convert to milliseconds
         return fetchTidalData(url); // Retry the request
 
       default:
         throw new Error(`HTTP error! status: ${response.status}`);
+        break;
     }
     return response.json();
   } catch (error) {
