@@ -168,7 +168,7 @@ async function getTidalPlaylistIds(playlistUrl) {
     // Extract track details from the included array
     const tracks = playlistData.data;
 
-    console.log(`Page: ${currentPageTidal}`);
+    printSameLine(`Page: ${currentPageTidal}`);
 
     for (const track of tracks) {
       tidalArtistsIds.push(track?.id || 0);
@@ -184,7 +184,7 @@ async function getTidalPlaylistIds(playlistUrl) {
       const uri = `${tidalURL}${nextPage}`;
       return await getTidalPlaylistIds(uri); // Recursively fetch the next page
     } else {
-      console.log('No more pages available.');
+      console.log('\nNo more pages available.');
     }
   } catch (error) {
     console.error('Error Tidal API:', error.message);
@@ -273,6 +273,24 @@ async function compareSongsAlreadyListened(tidalTracks, lastfmTracks) {
   );
 }
 
+async function findDuplicateTracks(tracks) {
+  const seen = new Map(); // Stores composite keys we've encountered
+  const duplicates = []; // Stores the actual duplicate objects
+
+  for (const track of tracks) {
+    // Create a unique key combining name and artist
+    const key = `${track.name.toLowerCase()}|${track.artist.toLowerCase()}`;
+
+    if (seen.has(key)) {
+      duplicates.push(track); // Found a duplicate
+    } else {
+      seen.set(key, true); // Mark this combination as seen
+    }
+  }
+
+  return duplicates;
+}
+
 (async () => {
   await checkEnvVariables();
   // TIDAL
@@ -280,12 +298,22 @@ async function compareSongsAlreadyListened(tidalTracks, lastfmTracks) {
   await getTidalPlaylistIds(tidalPlaylistUrl);
 
   // LAST.FM
-  let recentTracks = await getLastfmListeningHistory();
+  let listenedTracks = await getLastfmListeningHistory();
 
   tidalPlaylistSongs = await sortAndJoinArtists(tidalPlaylistSongs);
-  recentTracks = await sortAndJoinArtists(recentTracks);
+  listenedTracks = await sortAndJoinArtists(listenedTracks);
+  const tidalDuplicates = await findDuplicateTracks(tidalPlaylistSongs);
 
-  const result = await compareSongsAlreadyListened(tidalPlaylistSongs, recentTracks);
+  // let listenedTracks = JSON.parse(readFileSync('lastfm.json', 'utf8'));
+
+  const result = await compareSongsAlreadyListened(tidalPlaylistSongs, listenedTracks);
   writeFileSync('listened.json', JSON.stringify(result, null, 2));
+  writeFileSync('lastfm.json', JSON.stringify(listenedTracks, null, 2));
+  writeFileSync('duplicates.json', JSON.stringify(tidalDuplicates, null, 2));
   console.log('\nlistened.json file generated');
+  console.log('lastfm.json file generated');
+  console.log('duplicates.json file generated');
 })();
+
+
+//TODO save last.fm file as DB, try to get the info from latest to oldest and then compare the data to check when to stop
