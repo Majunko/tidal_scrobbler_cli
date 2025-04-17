@@ -7,7 +7,10 @@
   "type": "module",
   "main": "index.js",
   "scripts": {
-    "start": "node --env-file=.env index.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node --env-file=.env src/index.js",
+    "test": "node --env-file=.env src/test.js"
+  },
+  "dependencies": {
+    "sqlite3": "^5.1.7"
   }
 }

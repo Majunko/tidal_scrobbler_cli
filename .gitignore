@@ -1,6 +1,8 @@
 node_modules/
 package-lock.json
 .env
+*.db
 listened.json
 duplicates.json
 lastfm.json
+test.js

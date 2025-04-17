@@ -1,4 +1,15 @@
-import { writeFileSync, readFileSync } from 'fs';
+import { writeFileSync } from 'fs';
+import sqlite3 from 'sqlite3';
+import { existsAllTables, executeSQL } from './sql.js';
+import {
+  sleep,
+  printSameLine,
+  checkEnvVariables,
+  updateEnvVariable,
+  findDuplicateTracks,
+  sortAndJoinArtists,
+  compareSongsAlreadyListened,
+} from './utils.js';
 
 // --- TIDAL ---
 const tidalClientId = process.env.TIDAL_CLIENT_ID;
@@ -14,6 +25,11 @@ const tidalHeaders = {
   Accept: 'application/vnd.api+json',
   Authorization: `Bearer ${tidalAccessToken}`,
 };
+
+const lastFmHeaders = {
+  'User-Agent': 'LastFMScrobbler/1.0 (https://github.com/Majunko/tidal_scrobbler)',
+};
+
 let tidalPlaylistSongs = [];
 let currentPageTidal = 1;
 let tidalTokenTries = 0;
@@ -22,64 +38,7 @@ let tidalTokenTries = 0;
 const lastFmUserName = process.env.LASTFM_USERNAME;
 const lastFmApiKey = process.env.LASTFM_API_KEY;
 
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-async function checkEnvVariables() {
-  const requiredEnvVariables = [
-    'TIDAL_CLIENT_ID',
-    'TIDAL_CLIENT_SECRET',
-    'TIDAL_ACCESS_TOKEN',
-    'TIDAL_PLAYLIST_ID',
-    'LASTFM_USERNAME',
-    'LASTFM_API_KEY'
-  ];
-
-  const missingVariables = requiredEnvVariables.filter(variable => !process.env[variable]);
-
-  if (missingVariables.length > 0) {
-    console.error(`Missing environment variables: ${missingVariables.join(', ')}`);
-    process.exit(1);
-  }
-}
-
-async function updateEnvVariable(key, newValue) {
-  const envFilePath = '.env';
-  let envFileContent = readFileSync(envFilePath, 'utf8');
-
-  // Use a regular expression to find and replace the key-value pair
-  const regex = new RegExp(`^${key}=.*`, 'm');
-  if (regex.test(envFileContent)) {
-      envFileContent = envFileContent.replace(regex, `${key}='${newValue}'`);
-      console.log(`Updated ${key}\n`);
-  } else {
-      throw new Error(`Key ${key} not found in .env file.`);
-  }
-
-  // Write the updated content back to the .env file
-  writeFileSync(envFilePath, envFileContent);
-}
-
-function printSameLine(text) {
-  process.stdout.clearLine(0);
-  process.stdout.cursorTo(0);
-  process.stdout.write(text);
-}
-
-async function sortAndJoinArtists(tracks) {
-  const a = tracks.map((song) => {
-    return {
-      name: song.name,
-      artist:
-        song.artist.length > 0
-          ? song.artist
-              .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' })) // Case-insensitive sort
-              .join(', ')
-          : 'Unknown Artist', // Handle empty artist array
-    };
-  });
-
-  return a;
-}
+const db = new sqlite3.Database(process.env.LASTFM_DATABASE_NAME);
 
 async function generateTidalAccessToken() {
   const url = 'https://auth.tidal.com/v1/oauth2/token';
@@ -142,7 +101,7 @@ async function fetchTidalData(url) {
       case 429:
         const retryAfter = parseInt(response.headers.get('Retry-After')) || replenishRate; // Use Retry-After or replenish rate
         printSameLine(`Too many requests, waiting ${retryAfter}s and trying again...`);
-        await sleep((retryAfter * 2) * 1000); // Convert to milliseconds
+        await sleep(retryAfter * 2 * 1000); // Convert to milliseconds
         return fetchTidalData(url); // Retry the request
 
       default:
@@ -222,14 +181,32 @@ async function getLastfmListeningHistory() {
   let tracks = [];
   let page = 1;
   let totalPages = 1;
+  let sql = '';
 
   console.log('Fetching last.fm listening history...');
+
+  /*
+  try {
+    
+      // const sql = `INSERT INTO tracks(artist, album, name) VALUES (?, ?, ?)`;
+      // await executeSQL(db, sql, ['Invidia', 'While 1 < 2', 'Deadmau5']);
+      //await executeSQL(db, sql, ['Ira', 'While 1 < 2', 'Deadmau5']);
+      
+    const sql = `SELECT * from tracks`;
+    const res = await executeSQL(db, sql);
+    console.log(res);
+  } catch (err) {
+    console.log(err);
+  } finally {
+    db.close();
+  }
+  */
 
   while (page <= totalPages) {
     const url = `https://ws.audioscrobbler.com/2.0/?method=user.getrecenttracks&user=${lastFmUserName}&api_key=${lastFmApiKey}&format=json&limit=200&page=${page}`;
 
     try {
-      const response = await fetch(url);
+      const response = await fetch(url, { headers: lastFmHeaders });
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
@@ -242,14 +219,23 @@ async function getLastfmListeningHistory() {
 
       tracks.push(
         ...data.recenttracks.track.map((track) => ({
-          name: track.name,
           artist: track.artist['#text'].split(', '),
+          album: track.album['#text'] || 'caca',
+          name: track.name
         }))
       );
 
       totalPages = parseInt(data.recenttracks['@attr'].totalPages, 10);
       printSameLine(`Page ${page}/${totalPages}`);
       page++;
+
+
+      //TODO BORRAR
+      page = 99;
+
+
+
+
     } catch (error) {
       console.error(`\nError fetching data from ${url}:`, error.message);
     }
@@ -260,60 +246,30 @@ async function getLastfmListeningHistory() {
   return tracks;
 }
 
-// Return the songs i've never listened to
-async function compareSongsAlreadyListened(tidalTracks, lastfmTracks) {
-  // Create a Set of listened tracks from Last.fm
-  const listenedTracks = new Set(
-    lastfmTracks.map((track) => `${track.name.toLowerCase()}|${track.artist.toLowerCase()}`)
-  );
-
-  // Filter Tidal tracks to keep only those that exist in Last.fm
-  return tidalTracks.filter((track) =>
-    listenedTracks.has(`${track.name.toLowerCase()}|${track.artist.toLowerCase()}`)
-  );
-}
-
-async function findDuplicateTracks(tracks) {
-  const seen = new Map(); // Stores composite keys we've encountered
-  const duplicates = []; // Stores the actual duplicate objects
-
-  for (const track of tracks) {
-    // Create a unique key combining name and artist
-    const key = `${track.name.toLowerCase()}|${track.artist.toLowerCase()}`;
-
-    if (seen.has(key)) {
-      duplicates.push(track); // Found a duplicate
-    } else {
-      seen.set(key, true); // Mark this combination as seen
-    }
-  }
-
-  return duplicates;
-}
-
 (async () => {
-  await checkEnvVariables();
+  checkEnvVariables();
+  await existsAllTables(db);
+
   // TIDAL
   console.log(`Fetching Tidal playlist IDs...\n`);
   await getTidalPlaylistIds(tidalPlaylistUrl);
 
   // LAST.FM
-  let listenedTracks = await getLastfmListeningHistory();
+  let historyTracks = await getLastfmListeningHistory();
 
-  tidalPlaylistSongs = await sortAndJoinArtists(tidalPlaylistSongs);
-  listenedTracks = await sortAndJoinArtists(listenedTracks);
-  const tidalDuplicates = await findDuplicateTracks(tidalPlaylistSongs);
+  tidalPlaylistSongs = sortAndJoinArtists(tidalPlaylistSongs);
+  historyTracks = sortAndJoinArtists(historyTracks);
+  const tidalDuplicates = findDuplicateTracks(tidalPlaylistSongs);
 
-  // let listenedTracks = JSON.parse(readFileSync('lastfm.json', 'utf8'));
+  console.log(historyTracks);
 
-  const result = await compareSongsAlreadyListened(tidalPlaylistSongs, listenedTracks);
-  writeFileSync('listened.json', JSON.stringify(result, null, 2));
-  writeFileSync('lastfm.json', JSON.stringify(listenedTracks, null, 2));
+  const listenedSongs = compareSongsAlreadyListened(tidalPlaylistSongs, historyTracks);
+
+  writeFileSync('listened.json', JSON.stringify(listenedSongs, null, 2));
+  writeFileSync('lastfm.json', JSON.stringify(historyTracks, null, 2));
   writeFileSync('duplicates.json', JSON.stringify(tidalDuplicates, null, 2));
+
   console.log('\nlistened.json file generated');
   console.log('lastfm.json file generated');
   console.log('duplicates.json file generated');
 })();
-
-
-//TODO save last.fm file as DB, try to get the info from latest to oldest and then compare the data to check when to stop
