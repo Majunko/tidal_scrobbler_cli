@@ -229,13 +229,6 @@ async function getLastfmListeningHistory() {
       printSameLine(`Page ${page}/${totalPages}`);
       page++;
 
-
-      //TODO BORRAR
-      page = 99;
-
-
-
-
     } catch (error) {
       console.error(`\nError fetching data from ${url}:`, error.message);
     }

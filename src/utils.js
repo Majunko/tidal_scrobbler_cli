@@ -60,6 +60,7 @@ export const sortAndJoinArtists = (tracks) => {
               .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' })) // Case-insensitive sort
               .join(', ')
           : 'Unknown Artist', // Handle empty artist array
+      album: song.album,
     };
   });
 
@@ -79,6 +80,9 @@ export const compareSongsAlreadyListened = (tidalTracks, lastfmTracks) => {
   );
 }
 
+/**
+ * Returns only the duplicate tracks
+ */
 export const findDuplicateTracks = (tracks) => {
   const seen = new Map(); // Stores composite keys we've encountered
   const duplicates = []; // Stores the actual duplicate objects
