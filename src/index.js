@@ -1,6 +1,12 @@
 import { writeFileSync } from 'fs';
-import sqlite3 from 'sqlite3';
-import { existsAllTables, executeSQL } from './sql.js';
+import {
+  existsAllTables,
+  executeSQL,
+  insertTrack,
+  connectDB,
+  getLatestTrack,
+  checkTrackExists,
+} from './sql.js';
 import {
   sleep,
   printSameLine,
@@ -9,6 +15,7 @@ import {
   findDuplicateTracks,
   sortAndJoinArtists,
   compareSongsAlreadyListened,
+  getLocalTimestamp,
 } from './utils.js';
 
 // --- TIDAL ---
@@ -38,7 +45,92 @@ let tidalTokenTries = 0;
 const lastFmUserName = process.env.LASTFM_USERNAME;
 const lastFmApiKey = process.env.LASTFM_API_KEY;
 
-const db = new sqlite3.Database(process.env.LASTFM_DATABASE_NAME);
+async function getLastfmListeningHistory() {
+  const db = await connectDB();
+  let allFetchedTracks = [];
+  let page = 1;
+  let shouldContinueFetching = true;
+  let fromTimestamp = 0; // Default to 0 if the database is empty
+
+  // Get the timestamp of the latest track in the database
+  const latestTrack = await getLatestTrack(db);
+  if (latestTrack && latestTrack.date) {
+    fromTimestamp = Math.floor(new Date(latestTrack.date).getTime() / 1000); // Convert ISO date to Unix timestamp (seconds)
+    console.log(`Fetching new tracks since: ${latestTrack.date} (Unix timestamp: ${fromTimestamp})`);
+  } else {
+    console.log('Database is empty. Fetching all history.');
+  }
+
+  console.log('Fetching last.fm listening history from API...');
+
+  while (shouldContinueFetching) {
+    const url = `https://ws.audioscrobbler.com/2.0/?method=user.getrecenttracks&user=${lastFmUserName}&api_key=${lastFmApiKey}&format=json&limit=200&page=${page}${
+      fromTimestamp > 0 ? `&from=${fromTimestamp}` : ''
+    }`;
+
+    try {
+      const response = await fetch(url, { headers: lastFmHeaders });
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      const data = await response.json();
+
+      if (data && data.recenttracks && data.recenttracks.track) {
+        const tracks = data.recenttracks.track.map((item) => ({
+          artist: item.artist['#text'],
+          album: item.album['#text'],
+          name: item.name,
+          date:
+            item.date && item.date.uts
+              ? new Date(parseInt(item.date.uts) * 1000).toISOString()
+              : getLocalTimestamp(),
+        }));
+        allFetchedTracks.push(...tracks);
+
+        const totalPages = parseInt(data.recenttracks['@attr'].totalPages, 10);
+        printSameLine(`Fetched page: ${page}/${totalPages}`);
+
+        if (tracks.length < 200 || page >= totalPages) {
+          shouldContinueFetching = false;
+          console.log('\nFinished fetching Last.fm history.');
+        } else {
+          page++;
+          await sleep(1000);
+        }
+      } else {
+        console.warn('\nNo tracks found on this page or API error.');
+        shouldContinueFetching = false;
+      }
+    } catch (error) {
+      console.error(`\nError fetching data from ${url}:`, error.message);
+      shouldContinueFetching = false;
+    }
+  }
+
+  // Reverse the fetched tracks to save from oldest to newest
+  const reversedTracks = [...allFetchedTracks].reverse();
+  let insertedCount = 0;
+
+  console.log('Saving Last.fm history to database (oldest to newest)...');
+  for (const track of reversedTracks) {
+    const exists = await checkTrackExists(db, track.artist, track.name);
+    if (!exists) {
+      await insertTrack(db, track);
+      insertedCount++;
+    }
+  }
+
+  db.close((err) => {
+    if (err) {
+      console.error('Failed to close the database connection:', err.message);
+    } else {
+      console.log('\nDatabase connection closed after saving Last.fm history.');
+    }
+  });
+
+  console.log(`Total new Last.fm tracks added to the database: ${insertedCount}`);
+  return [];
+}
 
 async function generateTidalAccessToken() {
   const url = 'https://auth.tidal.com/v1/oauth2/token';
@@ -94,7 +186,7 @@ async function fetchTidalData(url) {
         }
 
         tidalHeaders.Authorization = `Bearer ${tidalAccessToken}`; // Important to update the headers with the new access token
-        await updateEnvVariable('TIDAL_ACCESS_TOKEN', tidalAccessToken);
+        updateEnvVariable('TIDAL_ACCESS_TOKEN', tidalAccessToken);
         return fetchTidalData(url); // Retry the request with the new access token
         break;
 
@@ -177,92 +269,42 @@ async function getTidalTracksWithArtists(tidalArtistsIds) {
   });
 }
 
-async function getLastfmListeningHistory() {
-  let tracks = [];
-  let page = 1;
-  let totalPages = 1;
-  let sql = '';
-
-  console.log('Fetching last.fm listening history...');
-
-  /*
-  try {
-    
-      // const sql = `INSERT INTO tracks(artist, album, name) VALUES (?, ?, ?)`;
-      // await executeSQL(db, sql, ['Invidia', 'While 1 < 2', 'Deadmau5']);
-      //await executeSQL(db, sql, ['Ira', 'While 1 < 2', 'Deadmau5']);
-      
-    const sql = `SELECT * from tracks`;
-    const res = await executeSQL(db, sql);
-    console.log(res);
-  } catch (err) {
-    console.log(err);
-  } finally {
-    db.close();
-  }
-  */
-
-  while (page <= totalPages) {
-    const url = `https://ws.audioscrobbler.com/2.0/?method=user.getrecenttracks&user=${lastFmUserName}&api_key=${lastFmApiKey}&format=json&limit=200&page=${page}`;
-
-    try {
-      const response = await fetch(url, { headers: lastFmHeaders });
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      const data = await response.json();
-
-      // Remove now playing track from every page except the first
-      if (page > 2 && data.recenttracks.track[0]?.['@attr']?.nowplaying) {
-        data.recenttracks.track.shift();
-      }
-
-      tracks.push(
-        ...data.recenttracks.track.map((track) => ({
-          artist: track.artist['#text'].split(', '),
-          album: track.album['#text'] || 'caca',
-          name: track.name
-        }))
-      );
-
-      totalPages = parseInt(data.recenttracks['@attr'].totalPages, 10);
-      printSameLine(`Page ${page}/${totalPages}`);
-      page++;
-
-    } catch (error) {
-      console.error(`\nError fetching data from ${url}:`, error.message);
-    }
-  }
-
-  process.stdout.write('\n');
-  console.log(`Scrobbles: ${tracks.length}`);
-  return tracks;
-}
-
 (async () => {
   checkEnvVariables();
+  const db = await connectDB();
   await existsAllTables(db);
 
+  // Fetch and save Last.fm history, oldest to newest
+  await getLastfmListeningHistory();
+
   // TIDAL
-  console.log(`Fetching Tidal playlist IDs...\n`);
+  console.log(`\nFetching Tidal playlist IDs...\n`);
   await getTidalPlaylistIds(tidalPlaylistUrl);
 
-  // LAST.FM
-  let historyTracks = await getLastfmListeningHistory();
-
   tidalPlaylistSongs = sortAndJoinArtists(tidalPlaylistSongs);
-  historyTracks = sortAndJoinArtists(historyTracks);
-  const tidalDuplicates = findDuplicateTracks(tidalPlaylistSongs);
 
-  console.log(historyTracks);
-
-  const listenedSongs = compareSongsAlreadyListened(tidalPlaylistSongs, historyTracks);
+  // Fetch listened songs from the database for comparison
+  const allListenedTracksFromDB = await executeSQL(db, `SELECT name, artist FROM tracks`);
+  const formattedListenedTracksFromDB = allListenedTracksFromDB.map((track) => ({
+    name: track.name,
+    artist: track.artist,
+  }));
+  const listenedSongs = compareSongsAlreadyListened(
+    tidalPlaylistSongs,
+    sortAndJoinArtists(formattedListenedTracksFromDB)
+  );
 
   writeFileSync('listened.json', JSON.stringify(listenedSongs, null, 2));
-  writeFileSync('lastfm.json', JSON.stringify(historyTracks, null, 2));
-  writeFileSync('duplicates.json', JSON.stringify(tidalDuplicates, null, 2));
+  writeFileSync('duplicates.json', JSON.stringify(findDuplicateTracks(tidalPlaylistSongs), null, 2));
 
   console.log('\nlistened.json file generated');
-  console.log('lastfm.json file generated');
   console.log('duplicates.json file generated');
+
+  db.close((err) => {
+    if (err) {
+      console.error('Failed to close the database connection:', err.message);
+    } else {
+      console.log('Database connection closed.');
+    }
+  });
 })();

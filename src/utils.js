@@ -1,4 +1,4 @@
-import { readFileSync } from 'fs';
+import { writeFileSync, readFileSync } from 'fs';
 
 export const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -52,20 +52,26 @@ export const updateEnvVariable = (key, newValue) => {
 
 export const sortAndJoinArtists = (tracks) => {
   const a = tracks.map((song) => {
-    return {
-      name: song.name,
-      artist:
-        song.artist.length > 0
-          ? song.artist
-              .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' })) // Case-insensitive sort
-              .join(', ')
-          : 'Unknown Artist', // Handle empty artist array
-      album: song.album,
-    };
+      let artistString = '';
+      if (Array.isArray(song.artist)) {
+          artistString = song.artist
+              .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
+              .join(', ');
+      } else if (typeof song.artist === 'string') {
+          artistString = song.artist;
+      } else {
+          artistString = 'Unknown Artist'; // Handle cases where artist is neither array nor string
+      }
+
+      return {
+          name: song.name,
+          artist: artistString,
+          album: song.album,
+      };
   });
 
   return a;
-}
+};
 
 // Return the songs i've never listened to
 export const compareSongsAlreadyListened = (tidalTracks, lastfmTracks) => {
