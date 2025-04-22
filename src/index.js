@@ -294,11 +294,17 @@ async function getTidalTracksWithArtists(tidalArtistsIds) {
     sortAndJoinArtists(formattedListenedTracksFromDB)
   );
 
-  writeFileSync('listened.json', JSON.stringify(listenedSongs, null, 2));
-  writeFileSync('duplicates.json', JSON.stringify(findDuplicateTracks(tidalPlaylistSongs), null, 2));
+  if (listenedSongs.length > 0) {
+    writeFileSync('listened.json', JSON.stringify(listenedSongs, null, 2));
+    console.log('\nlistened.json file generated');
+  } else {
+    console.log('No songs you already listened to were found in the database.');
+  }
 
-  console.log('\nlistened.json file generated');
-  console.log('duplicates.json file generated');
+  if (findDuplicateTracks(tidalPlaylistSongs).length > 0) {
+    writeFileSync('duplicates.json', JSON.stringify(findDuplicateTracks(tidalPlaylistSongs), null, 2));
+    console.log('duplicates.json file generated');
+  }
 
   db.close((err) => {
     if (err) {
