@@ -281,18 +281,14 @@ async function getTidalTracksWithArtists(tidalArtistsIds) {
   console.log(`\nFetching Tidal playlist IDs...\n`);
   await getTidalPlaylistIds(tidalPlaylistUrl);
 
-  tidalPlaylistSongs = sortAndJoinArtists(tidalPlaylistSongs);
-
   // Fetch listened songs from the database for comparison
-  const allListenedTracksFromDB = await executeSQL(db, `SELECT name, artist FROM tracks`);
-  const formattedListenedTracksFromDB = allListenedTracksFromDB.map((track) => ({
-    name: track.name,
-    artist: track.artist,
-  }));
-  const listenedSongs = compareSongsAlreadyListened(
-    tidalPlaylistSongs,
-    sortAndJoinArtists(formattedListenedTracksFromDB)
-  );
+  let allListenedTracksFromDB = await executeSQL(db, `SELECT name, artist FROM tracks`);
+
+  // Sort and join artists, otherwise artists are an array and we need it to be a string
+  tidalPlaylistSongs = sortAndJoinArtists(tidalPlaylistSongs);
+  allListenedTracksFromDB = sortAndJoinArtists(allListenedTracksFromDB);
+
+  const listenedSongs = compareSongsAlreadyListened(tidalPlaylistSongs, allListenedTracksFromDB);
 
   if (listenedSongs.length > 0) {
     writeFileSync('listened.json', JSON.stringify(listenedSongs, null, 2));
@@ -301,8 +297,10 @@ async function getTidalTracksWithArtists(tidalArtistsIds) {
     console.log('No songs you already listened to were found in the database.');
   }
 
-  if (findDuplicateTracks(tidalPlaylistSongs).length > 0) {
-    writeFileSync('duplicates.json', JSON.stringify(findDuplicateTracks(tidalPlaylistSongs), null, 2));
+  const duplicates = findDuplicateTracks(tidalPlaylistSongs);
+
+  if (duplicates.length > 0) {
+    writeFileSync('duplicates.json', JSON.stringify(duplicates, null, 2));
     console.log('duplicates.json file generated');
   }
 

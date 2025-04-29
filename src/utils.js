@@ -51,26 +51,24 @@ export const updateEnvVariable = (key, newValue) => {
 }
 
 export const sortAndJoinArtists = (tracks) => {
-  const a = tracks.map((song) => {
-      let artistString = '';
-      if (Array.isArray(song.artist)) {
-          artistString = song.artist
-              .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
-              .join(', ');
-      } else if (typeof song.artist === 'string') {
-          artistString = song.artist;
-      } else {
-          artistString = 'Unknown Artist'; // Handle cases where artist is neither array nor string
-      }
+  return tracks.map((song) => {
+    let artistString = typeof song.artist === 'string' ? song.artist.split(',') : song.artist;
 
-      return {
-          name: song.name,
-          artist: artistString,
-          album: song.album,
-      };
+    if (Array.isArray(artistString)) {
+      artistString = artistString
+        .map(artist => artist.trim())
+        .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
+        .join(', ');
+    } else {
+      artistString = 'Unknown Artist'; // Handle cases where artist is neither array nor string
+    }
+
+    return {
+      name: song.name,
+      artist: artistString,
+      album: song.album,
+    };
   });
-
-  return a;
 };
 
 // Return the songs i've never listened to
