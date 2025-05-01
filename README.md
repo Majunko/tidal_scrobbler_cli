@@ -11,18 +11,18 @@ To use this project, you need to:
    - Copy the **Playlist ID** and paste it into the `.env` file.
 
 2. **Create a Last.fm Application**:
-   - Create a new application on Last.fm.
+   - Create a new application on Last.fm -> https://www.last.fm/api/account/create
    - Copy the **API Key** and paste it into the `.env` file.
 
 3. **Create a Tidal Application**:
-   - Create a new application on Tidal.
+   - Create a new application on Tidal -> https://developer.tidal.com/dashboard
    - Copy the **Client ID** and **Client Secret** and paste them into the `.env` file.
 
 ## Setup
 
 1. Clone this repository:
    ```bash
-   git clone https://github.com/Majunko/tidal_scrobbler.git
+   git clone https://github.com/Majunko/tidal_scrobbler_cli.git
    cd tidal_scrobbler
    ```
 
