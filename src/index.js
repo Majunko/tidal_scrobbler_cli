@@ -34,7 +34,7 @@ const tidalHeaders = {
 };
 
 const lastFmHeaders = {
-  'User-Agent': 'LastFMScrobbler/1.0 (https://github.com/Majunko/tidal_scrobbler)',
+  'User-Agent': 'LastFMScrobbler/1.0 (https://github.com/Majunko/tidal_scrobbler_cli)',
 };
 
 let tidalPlaylistSongs = [];
