@@ -1,4 +1,4 @@
-import { writeFileSync, readFileSync } from 'fs';
+import { writeFileSync, readFileSync, existsSync, unlinkSync } from 'fs';
 
 export const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -6,6 +6,14 @@ export const getLocalTimestamp = () => {
   const now = new Date();
   // Format the date and time as a string SQLite can handle (e.g., ISO 8601)
   return now.toISOString(); // Or another format like 'YYYY-MM-DD HH:MM:SS.SSS'
+}
+
+export const deleteFile = (path) => {
+  if (existsSync(path)) {
+    unlinkSync(path);
+    return true;
+  }
+  return false;
 }
 
 export const printSameLine = (text) => {

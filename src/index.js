@@ -16,6 +16,7 @@ import {
   sortAndJoinArtists,
   compareSongsAlreadyListened,
   getLocalTimestamp,
+  deleteFile,
 } from './utils.js';
 
 // --- TIDAL ---
@@ -190,6 +191,10 @@ async function fetchTidalData(url) {
         return fetchTidalData(url); // Retry the request with the new access token
         break;
 
+      case 404:
+        throw new Error("Playlist not found.\nPlease check if the playlist it's public or if it exists");
+        break;
+
       case 429:
         const retryAfter = parseInt(response.headers.get('Retry-After')) || replenishRate; // Use Retry-After or replenish rate
         printSameLine(`Too many requests, waiting ${retryAfter}s and trying again...`);
@@ -289,6 +294,9 @@ async function getTidalTracksWithArtists(tidalArtistsIds) {
   allListenedTracksFromDB = sortAndJoinArtists(allListenedTracksFromDB);
 
   const listenedSongs = compareSongsAlreadyListened(tidalPlaylistSongs, allListenedTracksFromDB);
+
+  deleteFile('listened.json');
+  deleteFile('duplicates.json');
 
   if (listenedSongs.length > 0) {
     writeFileSync('listened.json', JSON.stringify(listenedSongs, null, 2));
