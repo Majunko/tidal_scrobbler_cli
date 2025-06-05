@@ -214,7 +214,7 @@ async function fetchTidalData(url) {
 
 // Main function to fetch playlist data and extract track id information
 async function getTidalPlaylistIds(playlistUrl) {
-  const tidalArtistsIds = [];
+  const tidalTracksIds = [];
 
   try {
     // Fetch playlist data
@@ -227,10 +227,10 @@ async function getTidalPlaylistIds(playlistUrl) {
     printSameLine(`Page: ${currentPageTidal}`);
 
     for (const track of tracks) {
-      tidalArtistsIds.push(track?.id || 0);
+      tidalTracksIds.push(track?.id || 0);
     }
 
-    await getTidalTracksWithArtists(tidalArtistsIds);
+    await getTidalTracksWithArtists(tidalTracksIds);
 
     // Check for next page
     let nextPage = playlistData?.links?.next || null;
@@ -249,9 +249,9 @@ async function getTidalPlaylistIds(playlistUrl) {
 }
 
 // Max 20 artists per request
-async function getTidalTracksWithArtists(tidalArtistsIds) {
-  const artistsIds = tidalArtistsIds.join(',');
-  const tracksUrl = `${tidalURL}/tracks?countryCode=US&filter[id]=${artistsIds}&include=artists`;
+async function getTidalTracksWithArtists(tidalTracksIds) {
+  const tracksIds = tidalTracksIds.join(',');
+  const tracksUrl = `${tidalURL}/tracks?countryCode=US&filter[id]=${tracksIds}&include=artists`;
   let tracksData = await fetchTidalData(tracksUrl);
   if (!tracksData) return;
 
@@ -263,7 +263,10 @@ async function getTidalTracksWithArtists(tidalArtistsIds) {
 
   // Extract track names and artist names
   tracksData.data.forEach((track) => {
-    const trackName = track.attributes.title;
+    const trackName = track.attributes.version
+      ? `${track.attributes.title} (${track.attributes.version})`
+      : track.attributes.title;
+
     const artistIds = track.relationships.artists.data.map((artist) => artist.id);
     const artistNames = artistIds.map((id) => artistMap.get(id)).filter((name) => name); // Filter out undefined names
 
@@ -292,6 +295,9 @@ async function getTidalTracksWithArtists(tidalArtistsIds) {
   // Sort and join artists, otherwise artists are an array and we need it to be a string
   tidalPlaylistSongs = sortAndJoinArtists(tidalPlaylistSongs);
   allListenedTracksFromDB = sortAndJoinArtists(allListenedTracksFromDB);
+
+  console.log(tidalPlaylistSongs);
+  console.log('----------------------------');
 
   const listenedSongs = compareSongsAlreadyListened(tidalPlaylistSongs, allListenedTracksFromDB);
 
