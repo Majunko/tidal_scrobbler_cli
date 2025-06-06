@@ -296,9 +296,6 @@ async function getTidalTracksWithArtists(tidalTracksIds) {
   tidalPlaylistSongs = sortAndJoinArtists(tidalPlaylistSongs);
   allListenedTracksFromDB = sortAndJoinArtists(allListenedTracksFromDB);
 
-  console.log(tidalPlaylistSongs);
-  console.log('----------------------------');
-
   const listenedSongs = compareSongsAlreadyListened(tidalPlaylistSongs, allListenedTracksFromDB);
 
   deleteFile('listened.json');
