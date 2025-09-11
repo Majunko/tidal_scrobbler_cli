@@ -79,16 +79,30 @@ export const sortAndJoinArtists = (tracks) => {
   });
 };
 
+// Normalize artist string: split by comma/ampersand, trim, sort, join
+export const normalizeArtist = (artist) => {
+  if (!artist) return '';
+  // Replace ' & ' and ',' with a common separator, then split
+  return artist
+    .replace(/(\s*&\s*|,\s*)/g, ',') // unify separators
+    .split(',')
+    .map(a => a.trim().toLowerCase())
+    .sort()
+    .join(',');
+}
+
 // Return the songs i've never listened to
 export const compareSongsAlreadyListened = (tidalTracks, lastfmTracks) => {
-  // Create a Set of listened tracks from Last.fm
   const listenedTracks = new Set(
-    lastfmTracks.map((track) => `${track.name.toLowerCase()}|${track.artist.toLowerCase()}`)
+    lastfmTracks.map((track) =>
+      `${track.name.toLowerCase()}|${normalizeArtist(track.artist)}`
+    )
   );
 
-  // Filter Tidal tracks to keep only those that exist in Last.fm
   return tidalTracks.filter((track) =>
-    listenedTracks.has(`${track.name.toLowerCase()}|${track.artist.toLowerCase()}`)
+    listenedTracks.has(
+      `${track.name.toLowerCase()}|${normalizeArtist(track.artist)}`
+    )
   );
 }
 
