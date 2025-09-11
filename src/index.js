@@ -76,31 +76,39 @@ async function getLastfmListeningHistory() {
       }
       const data = await response.json();
 
-      if (data && data.recenttracks && data.recenttracks.track) {
-        const tracks = data.recenttracks.track.map((item) => ({
-          artist: item.artist['#text'],
-          album: item.album['#text'],
-          name: item.name,
-          date:
-            item.date && item.date.uts
-              ? new Date(parseInt(item.date.uts) * 1000).toISOString()
-              : getLocalTimestamp(),
-        }));
-        allFetchedTracks.push(...tracks);
-
-        const totalPages = parseInt(data.recenttracks['@attr'].totalPages, 10);
-        printSameLine(`Fetched page: ${page}/${totalPages}`);
-
-        if (tracks.length < 200 || page >= totalPages) {
-          shouldContinueFetching = false;
-          console.log('\nFinished fetching Last.fm history.');
-        } else {
-          page++;
-          await sleep(1000);
+      let tracks = [];
+      if (data.recenttracks && data.recenttracks.track) {
+        if (Array.isArray(data.recenttracks.track)) {
+          tracks = data.recenttracks.track;
+        } else if (typeof data.recenttracks.track === 'object') {
+          tracks = [data.recenttracks.track];
         }
       } else {
-        console.warn('\nNo tracks found on this page or API error.');
+        console.error('Unexpected Last.fm response:', data);
+        return [];
+      }
+
+      // When processing Last.fm tracks:
+      const formattedTracks = tracks
+        .filter((track) => !(track['@attr'] && track['@attr'].nowplaying === 'true')) // Exclude now playing
+        .map((track) => ({
+          name: track.name,
+          artist: track.artist['#text'],
+          album: track.album ? track.album['#text'] : '',
+          date: track.date && track.date.uts ? new Date(parseInt(track.date.uts) * 1000).toISOString() : getLocalTimestamp()
+        }));
+
+      allFetchedTracks.push(...formattedTracks);
+
+      const totalPages = parseInt(data.recenttracks['@attr'].totalPages, 10) || 1;
+      printSameLine(`Fetched page: ${page}/${totalPages}`);
+
+      if (tracks.length < 200 || page >= totalPages) {
         shouldContinueFetching = false;
+        console.log('\nFinished fetching Last.fm history.');
+      } else {
+        page++;
+        await sleep(1000);
       }
     } catch (error) {
       console.error(`\nError fetching data from ${url}:`, error.message);
@@ -247,9 +255,12 @@ async function getTidalPlaylistIds(playlistUrl) {
 
 // Max 20 artists per request
 async function getTidalTracksWithArtists(tidalTracksIds) {
+  if (!tracksIds) return; // No tracks to fetch on empty playlist
+
   const tracksIds = tidalTracksIds.join(',');
   const tracksUrl = `${tidalURL}/tracks?countryCode=US&filter[id]=${tracksIds}&include=artists`;
   let tracksData = await fetchTidalData(tracksUrl);
+
   if (!tracksData) return;
 
   // Map artist IDs to their names
@@ -288,11 +299,11 @@ async function removeTracksFromTidalPlaylist(trackIds) {
 
   // Map trackId to itemId
   const itemsToDelete = playlistItemsData.data
-    .filter(item => trackIds.includes(item.id)) // item.id is the track ID
-    .map(item => ({
+    .filter((item) => trackIds.includes(item.id)) // item.id is the track ID
+    .map((item) => ({
       id: item.id,
       meta: { itemId: item.meta.itemId }, // playlist item ID
-      type: 'tracks'
+      type: 'tracks',
     }));
 
   if (!itemsToDelete.length) {
@@ -312,9 +323,9 @@ async function removeTracksFromTidalPlaylist(trackIds) {
 
   if (response.ok) {
     console.log(`${itemsToDelete.length} Removed songs:`);
-    itemsToDelete.forEach(item => {
+    itemsToDelete.forEach((item) => {
       // Find song details from tidalPlaylistSongs
-      const song = tidalPlaylistSongs.find(s => s.id === item.id);
+      const song = tidalPlaylistSongs.find((s) => s.id === item.id);
       if (song) {
         console.log(`${song.name} - ${song.artist}`);
       } else {
@@ -356,12 +367,8 @@ async function removeTracksFromTidalPlaylist(trackIds) {
 
     // Find Tidal track IDs for listened songs
     const listenedTrackIds = tidalPlaylistSongs
-      .filter(song =>
-        listenedSongs.some(ls =>
-          ls.name === song.name && ls.artist === song.artist
-        )
-      )
-      .map(song => song.id) // You need to store 'id' in tidalPlaylistSongs when fetching
+      .filter((song) => listenedSongs.some((ls) => ls.name === song.name && ls.artist === song.artist))
+      .map((song) => song.id) // You need to store 'id' in tidalPlaylistSongs when fetching
       .filter(Boolean);
 
     await removeTracksFromTidalPlaylist(listenedTrackIds);

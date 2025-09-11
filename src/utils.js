@@ -108,19 +108,17 @@ export const normalizeArtist = (artist) => {
 }
 
 // Return the songs i've never listened to
-export const compareSongsAlreadyListened = (tidalTracks, lastfmTracks) => {
+export const compareSongsAlreadyListened = (tidalPlaylistSongs, allListenedTracksFromDB) => {
   const listenedTracks = new Set(
-    lastfmTracks.map((track) =>
+    allListenedTracksFromDB.map(track =>
       `${track.name.toLowerCase()}|${normalizeArtist(track.artist)}`
     )
   );
 
-  return tidalTracks.filter((track) =>
-    listenedTracks.has(
-      `${track.name.toLowerCase()}|${normalizeArtist(track.artist)}`
-    )
+  return tidalPlaylistSongs.filter(track =>
+    listenedTracks.has(`${track.name.toLowerCase()}|${normalizeArtist(track.artist)}`)
   );
-}
+};
 
 /**
  * Returns only the duplicate tracks

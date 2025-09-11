@@ -40,22 +40,24 @@ export const existsAllTables = async (db) => {
 export const insertTrack = async (db, track) => {
   return new Promise((resolve, reject) => {
     db.run(
-      `
-                INSERT OR IGNORE INTO tracks (artist, album, name, date)
-                VALUES (?, ?, ?, ?)
-            `,
-      [track.artist, track.album, track.name, track.date],
-      (err) => {
+      'INSERT INTO tracks (name, artist, album, date) VALUES (?, ?, ?, ?)',
+      [
+        track.name,
+        track.artist,
+        track.album ?? '', // Use empty string if album is undefined
+        track.date ?? new Date().toISOString() // Use current date if missing
+      ],
+      function (err) {
         if (err) {
-          console.error('Failed to insert track:', err.message);
+          console.error('SQLite insert error:', err.message);
           reject(err);
         } else {
-          resolve();
+          resolve(this.lastID);
         }
       }
     );
   });
-}
+};
 
 export const getLatestTrack = async (db) => {
   return new Promise((resolve, reject) => {
