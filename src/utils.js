@@ -1,4 +1,5 @@
 import { writeFileSync, readFileSync, existsSync, unlinkSync } from 'fs';
+import crypto from 'crypto';
 
 export const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -6,6 +7,21 @@ export const getLocalTimestamp = () => {
   const now = new Date();
   // Format the date and time as a string SQLite can handle (e.g., ISO 8601)
   return now.toISOString(); // Or another format like 'YYYY-MM-DD HH:MM:SS.SSS'
+}
+
+export const base64URLEncode = (str) => {
+  return str.toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
+}
+
+export const randomBytes32 = () => {
+ return crypto.randomBytes(32);
+}
+
+export const sha256 = (buffer) => {
+  return crypto.createHash('sha256').update(buffer).digest();
 }
 
 export const deleteFile = (path) => {
@@ -26,7 +42,6 @@ export const checkEnvVariables = () => {
   const requiredEnvVariables = [
     'TIDAL_CLIENT_ID',
     'TIDAL_CLIENT_SECRET',
-    'TIDAL_ACCESS_TOKEN',
     'TIDAL_PLAYLIST_ID',
     'LASTFM_USERNAME',
     'LASTFM_API_KEY',
@@ -72,6 +87,7 @@ export const sortAndJoinArtists = (tracks) => {
     }
 
     return {
+      id: song.id,
       name: song.name,
       artist: artistString,
       album: song.album,

@@ -6,8 +6,7 @@ This project checks if a track has already been listened to on Tidal by leveragi
 
 To use this project, you need to:
 
-1. **Create a Public Playlist on Tidal**:
-   - Create a public playlist on Tidal and add the tracks you want to check.
+1. **Create a Playlist (public or private) on Tidal**:
    - Copy the **Playlist ID** and paste it into the `.env` file.
 
 2. **Create a Last.fm Application**:
@@ -16,6 +15,8 @@ To use this project, you need to:
 
 3. **Create a Tidal Application**:
    - Create a new application on Tidal -> https://developer.tidal.com/dashboard
+   - Write the Redirect URL to: http://localhost:3000/callback
+   - Select the next scopes: `playlists.read`, `playlists.write`
    - Copy the **Client ID** and **Client Secret** and paste them into the `.env` file.
 
 ## Setup
@@ -33,6 +34,12 @@ To use this project, you need to:
 
 3. Install the dependencies and start the project:
    ```bash
+   # Install dependencies
    npm install
+
+   # Authorize your account to the application to access your playlists
+   npm run oauth
+
+   # Start the process
    npm start
    ```

@@ -133,8 +133,9 @@ async function getLastfmListeningHistory() {
   return [];
 }
 
-async function generateTidalAccessToken() {
+async function refreshTidalAccessToken() {
   const url = 'https://auth.tidal.com/v1/oauth2/token';
+  const refreshToken = process.env.TIDAL_REFRESH_TOKEN;
   const response = await fetch(url, {
     method: 'POST',
     headers: {
@@ -142,17 +143,22 @@ async function generateTidalAccessToken() {
       Authorization: `Basic ${Buffer.from(`${tidalClientId}:${tidalClientSecret}`).toString('base64')}`,
     },
     body: new URLSearchParams({
-      grant_type: 'client_credentials',
+      grant_type: 'refresh_token',
+      refresh_token: refreshToken,
     }),
   });
 
-  if (response.status != 200) {
+  if (!response.ok) {
     throw new Error(`HTTP error! status: ${response.status}`);
   }
 
-  tidalTokenTries++;
-
   const data = await response.json();
+  updateEnvVariable('TIDAL_ACCESS_TOKEN', data.access_token);
+  if (data.refresh_token) {
+    updateEnvVariable('TIDAL_REFRESH_TOKEN', data.refresh_token);
+  }
+  tidalAccessToken = data.access_token;
+  tidalHeaders.Authorization = `Bearer ${tidalAccessToken}`;
   return data.access_token;
 }
 
@@ -175,19 +181,10 @@ async function fetchTidalData(url) {
         break;
 
       case 401:
-        tidalAccessToken = null;
-        while (tidalTokenTries < 3 && !tidalAccessToken) {
-          console.log(`Invalid access token. Generating new access token... Tries: ${tidalTokenTries}`);
-          tidalAccessToken = await generateTidalAccessToken();
-
-          if (!tidalAccessToken) {
-            console.error('Too many tries to generate a new access tokens. Exiting...');
-            process.exit(1);
-          }
-        }
-
-        tidalHeaders.Authorization = `Bearer ${tidalAccessToken}`; // Important to update the headers with the new access token
-        updateEnvVariable('TIDAL_ACCESS_TOKEN', tidalAccessToken);
+        tidalTokenTries++;
+        console.log(`Access token expired or invalid. Refreshing token...`);
+        tidalAccessToken = await refreshTidalAccessToken();
+        tidalHeaders.Authorization = `Bearer ${tidalAccessToken}`;
         return fetchTidalData(url); // Retry the request with the new access token
         break;
 
@@ -271,10 +268,62 @@ async function getTidalTracksWithArtists(tidalTracksIds) {
     const artistNames = artistIds.map((id) => artistMap.get(id)).filter((name) => name); // Filter out undefined names
 
     tidalPlaylistSongs.push({
+      id: track.id,
       name: trackName,
       artist: artistNames,
     });
   });
+}
+
+async function removeTracksFromTidalPlaylist(trackIds) {
+  if (!trackIds.length) return;
+
+  // Fetch playlist items to get itemId for each track
+  const playlistItemsUrl = `${tidalURL}/playlists/${tidalPlaylistId}/relationships/items?countryCode=US&locale=en-US`;
+  const playlistItemsData = await fetchTidalData(playlistItemsUrl);
+  if (!playlistItemsData || !playlistItemsData.data) {
+    console.error('Failed to fetch playlist items.');
+    return;
+  }
+
+  // Map trackId to itemId
+  const itemsToDelete = playlistItemsData.data
+    .filter(item => trackIds.includes(item.id)) // item.id is the track ID
+    .map(item => ({
+      id: item.id,
+      meta: { itemId: item.meta.itemId }, // playlist item ID
+      type: 'tracks'
+    }));
+
+  if (!itemsToDelete.length) {
+    console.log('No matching playlist items found for deletion.');
+    return;
+  }
+
+  const url = `${tidalURL}/playlists/${tidalPlaylistId}/relationships/items`;
+  const response = await fetch(url, {
+    method: 'DELETE',
+    headers: {
+      ...tidalHeaders,
+      'Content-Type': 'application/vnd.api+json',
+    },
+    body: JSON.stringify({ data: itemsToDelete }),
+  });
+
+  if (response.ok) {
+    console.log(`${itemsToDelete.length} Removed songs:`);
+    itemsToDelete.forEach(item => {
+      // Find song details from tidalPlaylistSongs
+      const song = tidalPlaylistSongs.find(s => s.id === item.id);
+      if (song) {
+        console.log(`${song.name} - ${song.artist}`);
+      } else {
+        console.log(`Track ID: ${item.id}`);
+      }
+    });
+  } else {
+    console.error(`Failed to remove tracks: ${response.status} ${await response.text()}`);
+  }
 }
 
 (async () => {
@@ -304,6 +353,18 @@ async function getTidalTracksWithArtists(tidalTracksIds) {
   if (listenedSongs.length > 0) {
     writeFileSync('listened.json', JSON.stringify(listenedSongs, null, 2));
     console.log('\nlistened.json file generated');
+
+    // Find Tidal track IDs for listened songs
+    const listenedTrackIds = tidalPlaylistSongs
+      .filter(song =>
+        listenedSongs.some(ls =>
+          ls.name === song.name && ls.artist === song.artist
+        )
+      )
+      .map(song => song.id) // You need to store 'id' in tidalPlaylistSongs when fetching
+      .filter(Boolean);
+
+    await removeTracksFromTidalPlaylist(listenedTrackIds);
   } else {
     console.log('No songs you already listened to were found in the database.');
   }
