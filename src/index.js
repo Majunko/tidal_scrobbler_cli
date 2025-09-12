@@ -255,7 +255,7 @@ async function getTidalPlaylistIds(playlistUrl) {
 
 // Max 20 artists per request
 async function getTidalTracksWithArtists(tidalTracksIds) {
-  if (!tracksIds) return; // No tracks to fetch on empty playlist
+  if (!tidalTracksIds) return; // No tracks to fetch on empty playlist
 
   const tracksIds = tidalTracksIds.join(',');
   const tracksUrl = `${tidalURL}/tracks?countryCode=US&filter[id]=${tracksIds}&include=artists`;
