@@ -135,8 +135,6 @@ async function getLastfmListeningHistory() {
   db.close((err) => {
     if (err) {
       console.error('Failed to close the database connection:', err.message);
-    } else {
-      console.log('\nDatabase connection closed after saving Last.fm history.');
     }
   });
 
@@ -318,7 +316,7 @@ async function removeTracksFromTidalPlaylist(trackIds) {
   });
 
   if (response.ok) {
-    console.log(`${itemsToDelete.length} Removed songs:`);
+    console.log(`\n${itemsToDelete.length} Removed songs:`);
     itemsToDelete.forEach((a) => {
       // Find song details from tidalPlaylistSongs
       const song = tidalPlaylistSongs.find((b) => b.id === a.id);
@@ -329,7 +327,7 @@ async function removeTracksFromTidalPlaylist(trackIds) {
       }
     });
   } else {
-    console.error(`Failed to remove tracks: ${response.status} ${await response.text()}`);
+    console.error(`\nFailed to remove tracks: ${response.status} ${await response.text()}`);
   }
 }
 
@@ -382,8 +380,6 @@ async function removeTracksFromTidalPlaylist(trackIds) {
   db.close((err) => {
     if (err) {
       console.error('Failed to close the database connection:', err.message);
-    } else {
-      console.log('Database connection closed.');
     }
   });
 })();

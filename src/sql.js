@@ -9,7 +9,7 @@ export const connectDB = async () => {
         console.error('Failed to connect to the database:', err.message);
         reject(err);
       } else {
-        console.log('Connected to the database.');
+        //console.log('Connected to the database.');
         resolve(db);
       }
     });
