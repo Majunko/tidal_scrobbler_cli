@@ -90,7 +90,7 @@ export const sortAndJoinArtists = (tracks) => {
       id: song.id,
       name: song.name,
       artist: artistString,
-      album: song.album,
+      itemId: song.itemId
     };
   });
 };

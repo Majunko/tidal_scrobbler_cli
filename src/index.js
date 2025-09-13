@@ -95,7 +95,10 @@ async function getLastfmListeningHistory() {
           name: track.name,
           artist: track.artist['#text'],
           album: track.album ? track.album['#text'] : '',
-          date: track.date && track.date.uts ? new Date(parseInt(track.date.uts) * 1000).toISOString() : getLocalTimestamp()
+          date:
+            track.date && track.date.uts
+              ? new Date(parseInt(track.date.uts) * 1000).toISOString()
+              : getLocalTimestamp(),
         }));
 
       allFetchedTracks.push(...formattedTracks);
@@ -219,8 +222,7 @@ async function fetchTidalData(url) {
 
 // Main function to fetch playlist data and extract track id information
 async function getTidalPlaylistIds(playlistUrl) {
-  const tidalTracksIds = [];
-
+  const trackIdsAndMetaItemIds = [];
   try {
     // Fetch playlist data
     let playlistData = await fetchTidalData(playlistUrl);
@@ -232,10 +234,10 @@ async function getTidalPlaylistIds(playlistUrl) {
     printSameLine(`Page: ${currentPageTidal}`);
 
     for (const track of tracks) {
-      tidalTracksIds.push(track?.id || 0);
+      trackIdsAndMetaItemIds.push({ id: track?.id || 0, meta: { itemId: track?.meta?.itemId || null } });
     }
 
-    await getTidalTracksWithArtists(tidalTracksIds);
+    await getTidalTracksWithArtists(trackIdsAndMetaItemIds);
 
     // Check for next page
     let nextPage = playlistData?.links?.next || null;
@@ -254,10 +256,10 @@ async function getTidalPlaylistIds(playlistUrl) {
 }
 
 // Max 20 artists per request
-async function getTidalTracksWithArtists(tidalTracksIds) {
-  if (!tidalTracksIds) return; // No tracks to fetch on empty playlist
+async function getTidalTracksWithArtists(trackIdsAndMetaItemIds) {
+  if (!trackIdsAndMetaItemIds.length) return; // No tracks to fetch on empty playlist
 
-  const tracksIds = tidalTracksIds.join(',');
+  const tracksIds = trackIdsAndMetaItemIds.map((item) => item.id).join(',');
   const tracksUrl = `${tidalURL}/tracks?countryCode=US&filter[id]=${tracksIds}&include=artists`;
   let tracksData = await fetchTidalData(tracksUrl);
 
@@ -277,11 +279,13 @@ async function getTidalTracksWithArtists(tidalTracksIds) {
 
     const artistIds = track.relationships.artists.data.map((artist) => artist.id);
     const artistNames = artistIds.map((id) => artistMap.get(id)).filter((name) => name); // Filter out undefined names
+    const itemId = trackIdsAndMetaItemIds.find(a => a.id == track.id)?.meta.itemId || null;
 
     tidalPlaylistSongs.push({
       id: track.id,
       name: trackName,
       artist: artistNames,
+      itemId: itemId,
     });
   });
 }
@@ -289,20 +293,12 @@ async function getTidalTracksWithArtists(tidalTracksIds) {
 async function removeTracksFromTidalPlaylist(trackIds) {
   if (!trackIds.length) return;
 
-  // Fetch playlist items to get itemId for each track
-  const playlistItemsUrl = `${tidalURL}/playlists/${tidalPlaylistId}/relationships/items?countryCode=US&locale=en-US`;
-  const playlistItemsData = await fetchTidalData(playlistItemsUrl);
-  if (!playlistItemsData || !playlistItemsData.data) {
-    console.error('Failed to fetch playlist items.');
-    return;
-  }
-
   // Map trackId to itemId
-  const itemsToDelete = playlistItemsData.data
-    .filter((item) => trackIds.includes(item.id)) // item.id is the track ID
-    .map((item) => ({
-      id: item.id,
-      meta: { itemId: item.meta.itemId }, // playlist item ID
+  const itemsToDelete = tidalPlaylistSongs
+    .filter((a) => trackIds.includes(a.id))
+    .map((a) => ({
+      id: a.id,
+      meta: { itemId: a.itemId }, // playlist item ID
       type: 'tracks',
     }));
 
@@ -323,9 +319,9 @@ async function removeTracksFromTidalPlaylist(trackIds) {
 
   if (response.ok) {
     console.log(`${itemsToDelete.length} Removed songs:`);
-    itemsToDelete.forEach((item) => {
+    itemsToDelete.forEach((a) => {
       // Find song details from tidalPlaylistSongs
-      const song = tidalPlaylistSongs.find((s) => s.id === item.id);
+      const song = tidalPlaylistSongs.find((b) => b.id === a.id);
       if (song) {
         console.log(`${song.name} - ${song.artist}`);
       } else {
