@@ -17,6 +17,7 @@ import {
   compareSongsAlreadyListened,
   getLocalTimestamp,
   deleteFile,
+  chunkArray,
 } from './utils.js';
 
 // --- TIDAL ---
@@ -291,43 +292,59 @@ async function getTidalTracksWithArtists(trackIdsAndMetaItemIds) {
 async function removeTracksFromTidalPlaylist(trackIds) {
   if (!trackIds.length) return;
 
-  // Map trackId to itemId
-  const itemsToDelete = tidalPlaylistSongs
-    .filter((a) => trackIds.includes(a.id))
-    .map((a) => ({
-      id: a.id,
-      meta: { itemId: a.itemId }, // playlist item ID
-      type: 'tracks',
-    }));
+  // Split the IDs into batches of ≤20
+  const batches = chunkArray(trackIds, 20);
 
-  if (!itemsToDelete.length) {
-    console.log('No matching playlist items found for deletion.');
-    return;
-  }
+  for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+    const batch = batches[batchIndex];
 
-  const url = `${tidalURL}/playlists/${tidalPlaylistId}/relationships/items`;
-  const response = await fetch(url, {
-    method: 'DELETE',
-    headers: {
-      ...tidalHeaders,
-      'Content-Type': 'application/vnd.api+json',
-    },
-    body: JSON.stringify({ data: itemsToDelete }),
-  });
+    // Build the payload for THIS batch
+    const itemsToDelete = tidalPlaylistSongs
+      .filter(song => batch.includes(song.id))
+      .map(song => ({
+        id: song.id,
+        meta: { itemId: song.itemId }, // playlist‑item ID
+        type: 'tracks',
+      }));
 
-  if (response.ok) {
-    console.log(`\n${itemsToDelete.length} Removed songs:`);
-    itemsToDelete.forEach((a) => {
-      // Find song details from tidalPlaylistSongs
-      const song = tidalPlaylistSongs.find((b) => b.id === a.id);
-      if (song) {
-        console.log(`${song.name} - ${song.artist}`);
-      } else {
-        console.log(`Track ID: ${item.id}`);
-      }
+    if (!itemsToDelete.length) {
+      console.log(`Batch ${batchIndex + 1}: no matching items to delete.`);
+      continue;
+    }
+
+    const url = `${tidalURL}/playlists/${tidalPlaylistId}/relationships/items`;
+    const response = await fetch(url, {
+      method: 'DELETE',
+      headers: {
+        ...tidalHeaders,
+        'Content-Type': 'application/vnd.api+json',
+      },
+      body: JSON.stringify({ data: itemsToDelete }),
     });
-  } else {
-    console.error(`\nFailed to remove tracks: ${response.status} ${await response.text()}`);
+
+    if (response.ok) {
+      console.log(
+        `\nBatch ${batchIndex + 1}/${batches.length}: removed ${itemsToDelete.length} track(s).`
+      );
+      itemsToDelete.forEach(item => {
+        const song = tidalPlaylistSongs.find(s => s.id === item.id);
+        if (song) {
+          console.log(`${song.name} – ${song.artist}`);
+        } else {
+          console.log(`Track ID: ${item.id}`);
+        }
+      });
+    } else {
+      const errText = await response.text();
+      console.error(
+        `\nBatch ${batchIndex + 1} failed (status ${response.status}): ${errText}`
+      );
+    }
+
+    if (batchIndex < batches.length - 1) {
+      // Example: wait 1 second before the next batch
+      await sleep(1000);
+    }
   }
 }
 

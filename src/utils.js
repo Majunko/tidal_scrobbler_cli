@@ -73,6 +73,18 @@ export const updateEnvVariable = (key, newValue) => {
   writeFileSync(envFilePath, envFileContent);
 }
 
+/**
+ * Returns an array of slices, each at most `size` elements long.
+ * Example: chunkArray([1,2,3,4,5], 2) → [[1,2],[3,4],[5]]
+ */
+export const chunkArray = (arr, size) => {
+  const chunks = [];
+  for (let i = 0; i < arr.length; i += size) {
+    chunks.push(arr.slice(i, i + size));
+  }
+  return chunks;
+}
+
 export const sortAndJoinArtists = (tracks) => {
   return tracks.map((song) => {
     let artistString = typeof song.artist === 'string' ? song.artist.split(',') : song.artist;
