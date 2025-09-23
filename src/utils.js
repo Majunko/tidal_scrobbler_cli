@@ -1,5 +1,6 @@
 import { writeFileSync, readFileSync, existsSync, unlinkSync } from 'fs';
 import crypto from 'crypto';
+import Fuse from 'fuse.js';
 
 export const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -112,7 +113,7 @@ export const normalizeArtist = (artist) => {
   if (!artist) return '';
   // Replace ' & ' and ',' with a common separator, then split
   return artist
-    .replace(/(\s*&\s*|,\s*)/g, ',') // unify separators
+    .replace(/(\s*&\s*|,\s*)/g, ',') // unify separators: "A & B, C" → "A,B,C"
     .split(',')
     .map(a => a.trim().toLowerCase())
     .sort()
@@ -120,17 +121,23 @@ export const normalizeArtist = (artist) => {
 }
 
 // Return the songs i've never listened to
-export const compareSongsAlreadyListened = (tidalPlaylistSongs, allListenedTracksFromDB) => {
-  const listenedTracks = new Set(
-    allListenedTracksFromDB.map(track =>
-      `${track.name.toLowerCase()}|${normalizeArtist(track.artist)}`
+export const compareSongsAlreadyListened = (tidalSongs, dbSongs) => {
+  return tidalSongs.filter(tidalSong =>
+    dbSongs.some(dbSong =>
+      isFuzzyTitleMatch(dbSong.name, tidalSong.name) &&
+      normalizeArtist(dbSong.artist) === normalizeArtist(tidalSong.artist)
     )
   );
+}
 
-  return tidalPlaylistSongs.filter(track =>
-    listenedTracks.has(`${track.name.toLowerCase()}|${normalizeArtist(track.artist)}`)
-  );
-};
+export const isFuzzyTitleMatch = (titleA, titleB) => {
+  const fuse = new Fuse([titleA], {
+    includeScore: true,
+    threshold: 0.3, // 70% similarity threshold
+  });
+  const result = fuse.search(titleB);
+  return result.length > 0;
+}
 
 /**
  * Returns only the duplicate tracks
