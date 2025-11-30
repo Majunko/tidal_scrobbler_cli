@@ -299,13 +299,15 @@ async function removeTracksFromTidalPlaylist(trackIds) {
     const batch = batches[batchIndex];
 
     // Build the payload for THIS batch
-    const itemsToDelete = tidalPlaylistSongs
+    let itemsToDelete = tidalPlaylistSongs
       .filter(song => batch.includes(song.id))
       .map(song => ({
         id: song.id,
         meta: { itemId: song.itemId }, // playlist‑item ID
         type: 'tracks',
       }));
+
+     itemsToDelete = [...new Map(itemsToDelete.map(v => [v.id, v])).values()]; // Remove duplicates
 
     if (!itemsToDelete.length) {
       console.log(`Batch ${batchIndex + 1}: no matching items to delete.`);
@@ -329,7 +331,7 @@ async function removeTracksFromTidalPlaylist(trackIds) {
       itemsToDelete.forEach(item => {
         const song = tidalPlaylistSongs.find(s => s.id === item.id);
         if (song) {
-          console.log(`${song.name} – ${song.artist}`);
+          console.log(`${song.name} - ${song.artist}`);
         } else {
           console.log(`Track ID: ${item.id}`);
         }
@@ -372,26 +374,36 @@ async function removeTracksFromTidalPlaylist(trackIds) {
   deleteFile('listened.json');
   deleteFile('duplicates.json');
 
+  const listenedTrackIds = [];
+
   if (listenedSongs.length > 0) {
     writeFileSync('listened.json', JSON.stringify(listenedSongs, null, 2));
     console.log('\nlistened.json file generated');
 
     // Find Tidal track IDs for listened songs
-    const listenedTrackIds = tidalPlaylistSongs
+    listenedTrackIds = tidalPlaylistSongs
       .filter((song) => listenedSongs.some((ls) => ls.name === song.name && ls.artist === song.artist))
       .map((song) => song.id) // You need to store 'id' in tidalPlaylistSongs when fetching
       .filter(Boolean);
-
-    await removeTracksFromTidalPlaylist(listenedTrackIds);
   } else {
     console.log('No songs you already listened to were found in the database.');
   }
 
   const duplicates = findDuplicateTracks(tidalPlaylistSongs);
-
+  //console.log(duplicates);
   if (duplicates.length > 0) {
     writeFileSync('duplicates.json', JSON.stringify(duplicates, null, 2));
     console.log('duplicates.json file generated');
+
+    duplicates.forEach(t => {
+      if (listenedTrackIds.filter(id => id === t.id).length === 0) { // Not already in listened IDs, add it
+        listenedTrackIds.push(t.id);
+      }
+    })
+  }
+
+  if (listenedTrackIds.length > 0) {
+    await removeTracksFromTidalPlaylist(listenedTrackIds);
   }
 
   db.close((err) => {

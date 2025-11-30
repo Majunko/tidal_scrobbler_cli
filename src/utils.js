@@ -131,12 +131,24 @@ export const compareSongsAlreadyListened = (tidalSongs, dbSongs) => {
 }
 
 export const isFuzzyTitleMatch = (titleA, titleB) => {
-  const fuse = new Fuse([titleA], {
-    includeScore: true,
-    threshold: 0.3, // 70% similarity threshold
-  });
-  const result = fuse.search(titleB);
-  return result.length > 0;
+  // First check for exact match
+  if (titleA === titleB) return true;
+  
+  // Normalize brackets/parentheses and try again
+  const normalize = (title) => title.replace(/[\[\(]/g, '[').replace(/[\]\)]/g, ']');
+  if (normalize(titleA) === normalize(titleB)) return true;
+  
+  // Only fuzzy match if both titles are reasonably short
+  if (titleA.length < 50 && titleB.length < 50) {
+    const fuse = new Fuse([titleA], {
+      includeScore: true,
+      threshold: 0.05, // 95% similarity - extremely strict
+    });
+    const result = fuse.search(titleB);
+    return result.length > 0;
+  }
+  
+  return false;
 }
 
 /**
