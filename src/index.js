@@ -374,7 +374,7 @@ async function removeTracksFromTidalPlaylist(trackIds) {
   deleteFile('listened.json');
   deleteFile('duplicates.json');
 
-  const listenedTrackIds = [];
+  let listenedTrackIds = [];
 
   if (listenedSongs.length > 0) {
     writeFileSync('listened.json', JSON.stringify(listenedSongs, null, 2));
