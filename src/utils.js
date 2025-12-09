@@ -75,6 +75,13 @@ export const updateEnvVariable = (key, newValue) => {
 }
 
 /**
+ * Remove diacritics (accents, eg: Fēlēs) from a string
+ *  */
+const removeDiacritics = (str) => {
+  return str.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+
+/**
  * Returns an array of slices, each at most `size` elements long.
  * Example: chunkArray([1,2,3,4,5], 2) → [[1,2],[3,4],[5]]
  */
@@ -115,7 +122,7 @@ export const normalizeArtist = (artist) => {
   return artist
     .replace(/(\s*&\s*|,\s*)/g, ',') // unify separators: "A & B, C" → "A,B,C"
     .split(',')
-    .map(a => a.trim().toLowerCase())
+    .map(a => removeDiacritics(a.trim().toLowerCase()))
     .sort()
     .join(',');
 }
@@ -130,7 +137,7 @@ export const compareSongsAlreadyListened = (tidalSongs, dbSongs) => {
   );
 }
 
-export const isFuzzyTitleMatch = (titleA, titleB) => {
+const isFuzzyTitleMatch = (titleA, titleB) => {
   // First check for exact match
   if (titleA === titleB) return true;
   
@@ -138,13 +145,19 @@ export const isFuzzyTitleMatch = (titleA, titleB) => {
   const normalize = (title) => title.replace(/[\[\(]/g, '[').replace(/[\]\)]/g, ']');
   if (normalize(titleA) === normalize(titleB)) return true;
   
+  // Normalize diacritics (accents) for comparison
+  const normalizedA = removeDiacritics(titleA);
+  const normalizedB = removeDiacritics(titleB);
+  
+  if (normalizedA === normalizedB) return true;
+  
   // Only fuzzy match if both titles are reasonably short
   if (titleA.length < 50 && titleB.length < 50) {
-    const fuse = new Fuse([titleA], {
+    const fuse = new Fuse([normalizedA], {
       includeScore: true,
       threshold: 0.05, // 95% similarity - extremely strict
     });
-    const result = fuse.search(titleB);
+    const result = fuse.search(normalizedB);
     return result.length > 0;
   }
   
