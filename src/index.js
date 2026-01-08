@@ -258,34 +258,57 @@ async function getTidalPlaylistIds(playlistUrl) {
 async function getTidalTracksWithArtists(trackIdsAndMetaItemIds) {
   if (!trackIdsAndMetaItemIds.length) return; // No tracks to fetch on empty playlist
 
-  const tracksIds = trackIdsAndMetaItemIds.map((item) => item.id).join(',');
+  // Request each unique track ID once to avoid redundant requests
+  const uniqueTrackIds = [...new Set(trackIdsAndMetaItemIds.map((item) => item.id))];
+  const tracksIds = uniqueTrackIds.join(',');
   const tracksUrl = `${tidalURL}/tracks?countryCode=US&filter[id]=${tracksIds}&include=artists`;
   let tracksData = await fetchTidalData(tracksUrl);
 
   if (!tracksData) return;
 
-  // Map artist IDs to their names
+  // Map artist IDs to their names (if included)
   const artistMap = new Map();
-  tracksData.included.forEach((artist) => {
-    artistMap.set(artist.id, artist.attributes.name);
-  });
+  if (Array.isArray(tracksData.included)) {
+    tracksData.included.forEach((artist) => {
+      artistMap.set(artist.id, artist.attributes.name);
+    });
+  }
 
-  // Extract track names and artist names
-  tracksData.data.forEach((track) => {
+  // Build a map of track id -> { name, artistNames }
+  const trackDetails = new Map();
+  (tracksData.data || []).forEach((track) => {
     const trackName = track.attributes.version
       ? `${track.attributes.title} (${track.attributes.version})`
       : track.attributes.title;
 
-    const artistIds = track.relationships.artists.data.map((artist) => artist.id);
-    const artistNames = artistIds.map((id) => artistMap.get(id)).filter((name) => name); // Filter out undefined names
-    const itemId = trackIdsAndMetaItemIds.find(a => a.id == track.id)?.meta.itemId || null;
+    const artistIds = (track.relationships && track.relationships.artists && Array.isArray(track.relationships.artists.data))
+      ? track.relationships.artists.data.map((artist) => artist.id)
+      : [];
 
-    tidalPlaylistSongs.push({
-      id: track.id,
-      name: trackName,
-      artist: artistNames,
-      itemId: itemId,
-    });
+    const artistNames = artistIds.map((id) => artistMap.get(id)).filter((name) => name);
+
+    trackDetails.set(String(track.id), { name: trackName, artistNames });
+  });
+
+  // For each playlist item (preserves duplicates), add an entry using its own meta.itemId
+  trackIdsAndMetaItemIds.forEach((item) => {
+    const details = trackDetails.get(String(item.id));
+    if (details) {
+      tidalPlaylistSongs.push({
+        id: item.id,
+        name: details.name,
+        artist: details.artistNames,
+        itemId: item.meta.itemId || null,
+      });
+    } else {
+      // Fallback: push a minimal representation so we don't lose playlist items
+      tidalPlaylistSongs.push({
+        id: item.id,
+        name: '',
+        artist: [],
+        itemId: item.meta.itemId || null,
+      });
+    }
   });
 }
 

@@ -82,6 +82,11 @@ const removeDiacritics = (str) => {
 }
 
 /**
+ * Normalize brackets/parentheses in titles (e.g. '(' → '[' and ')' → ']')
+ */
+export const normalize = (title = '') => String(title).replace(/[\[\(]/g, '[').replace(/[\]\)]/g, ']');
+
+/**
  * Returns an array of slices, each at most `size` elements long.
  * Example: chunkArray([1,2,3,4,5], 2) → [[1,2],[3,4],[5]]
  */
@@ -142,7 +147,6 @@ const isFuzzyTitleMatch = (titleA, titleB) => {
   if (titleA === titleB) return true;
   
   // Normalize brackets/parentheses and try again
-  const normalize = (title) => title.replace(/[\[\(]/g, '[').replace(/[\]\)]/g, ']');
   if (normalize(titleA) === normalize(titleB)) return true;
   
   // Normalize diacritics (accents) for comparison
@@ -171,9 +175,21 @@ export const findDuplicateTracks = (tracks) => {
   const seen = new Map(); // Stores composite keys we've encountered
   const duplicates = []; // Stores the actual duplicate objects
 
+  const normalizeTitleForKey = (title = '') =>
+    normalize(removeDiacritics(String(title)))
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase();
+
   for (const track of tracks) {
-    // Create a unique key combining name and artist
-    const key = `${track.name.toLowerCase()}|${track.artist.toLowerCase()}`;
+    // Normalize title and artist to create a robust key
+    const titleKey = normalizeTitleForKey(track.name);
+
+    // Ensure artist is a string; if array, join with comma
+    const artistRaw = Array.isArray(track.artist) ? track.artist.join(', ') : (track.artist || '');
+    const artistKey = normalizeArtist(artistRaw);
+
+    const key = `${titleKey}|${artistKey}`;
 
     if (seen.has(key)) {
       duplicates.push(track); // Found a duplicate
