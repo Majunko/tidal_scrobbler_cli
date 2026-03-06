@@ -2,6 +2,7 @@ node_modules/
 package-lock.json
 .env
 *.db
+*.txt
 listened.json
 duplicates.json
 test.js
