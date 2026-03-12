@@ -186,7 +186,7 @@ async function fetchTidalData(url) {
         if (remainingRequests <= 2) {
           // Add a buffer of 2 requests
           //console.log(`Approaching rate limit. Waiting ${replenishRate}s before continuing...`);
-          await sleep(replenishRate * 2 * 1000); // Convert to milliseconds
+          await sleep((replenishRate * 1000) + 100); // Convert to milliseconds
         }
         break;
 
@@ -205,7 +205,7 @@ async function fetchTidalData(url) {
       case 429:
         const retryAfter = parseInt(response.headers.get('Retry-After')) || replenishRate; // Use Retry-After or replenish rate
         printSameLine(`Too many requests, waiting ${retryAfter}s and trying again...`);
-        await sleep(retryAfter * 2 * 1000); // Convert to milliseconds
+        await sleep(retryAfter * 1000 + 100); // Convert to milliseconds
         return fetchTidalData(url); // Retry the request
 
       default:

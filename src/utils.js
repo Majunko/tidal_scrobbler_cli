@@ -132,12 +132,45 @@ export const normalizeArtist = (artist) => {
     .join(',');
 }
 
+const normalizeArtistSet = (artist) => {
+  if (!artist) return new Set();
+  return new Set(
+    artist
+      .replace(/(\s*&\s*|,\s*)/g, ',')
+      .split(',')
+      .map(a => removeDiacritics(a.trim().toLowerCase()))
+      .filter(Boolean)
+  );
+}
+
+const isSubset = (aSet, bSet) => {
+  if (aSet.size === 0) return false;
+  for (const v of aSet) {
+    if (!bSet.has(v)) return false;
+  }
+  return true;
+}
+
+const isArtistMatch = (artistA, artistB) => {
+  const a = normalizeArtistSet(artistA);
+  const b = normalizeArtistSet(artistB);
+
+  if (a.size === 0 || b.size === 0) return false;
+
+  if (a.size === b.size) {
+    return isSubset(a, b);
+  }
+
+  // Allow matches when one side is missing artists (e.g. Tidal omits collaborators)
+  return isSubset(a, b) || isSubset(b, a);
+}
+
 // Return the songs i've never listened to
 export const compareSongsAlreadyListened = (tidalSongs, dbSongs) => {
   return tidalSongs.filter(tidalSong =>
     dbSongs.some(dbSong =>
       isFuzzyTitleMatch(dbSong.name, tidalSong.name) &&
-      normalizeArtist(dbSong.artist) === normalizeArtist(tidalSong.artist)
+      isArtistMatch(dbSong.artist, tidalSong.artist)
     )
   );
 }

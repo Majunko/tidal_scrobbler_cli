@@ -3,6 +3,8 @@ import * as cheerio from 'cheerio';
 import fs from 'fs';
 
 
+// NOTE: Don't use top releases, because those are albums and is more tricky to scrape
+
 const textFileName = 'beatport_tracks.txt';
 /**
  * Scrapes the Beatport Top 100 and RETURNS an array of track objects
@@ -54,8 +56,8 @@ export async function scrapeTop100(top100Url) {
 async function runScraper() {
     const urls = [
         'https://www.beatport.com/genre/techno-raw-deep-hypnotic/92/top-100',
-        'https://www.beatport.com/genre/techno-peak-time-driving/6/top-100',
-        'https://www.beatport.com/genre/techno-peak-time-driving/6/hype-100'
+        // 'https://www.beatport.com/genre/techno-peak-time-driving/6/top-100',
+        // 'https://www.beatport.com/genre/techno-peak-time-driving/6/hype-100'
     ];
 
     // 1. Save all scraped data in a variable
