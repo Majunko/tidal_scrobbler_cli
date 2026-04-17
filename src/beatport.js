@@ -6,6 +6,59 @@ import fs from 'fs';
 // NOTE: Don't use top releases, because those are albums and is more tricky to scrape
 
 const textFileName = 'beatport_tracks.txt';
+
+function normalizeText(value) {
+    return value.replace(/\s+/g, ' ').trim();
+}
+
+function extractTrackTitle($, row) {
+    const titleCell = $(row).find('[role="cell"].title').first();
+    const trackLink = titleCell.find('a[href^="/track/"]').first();
+
+    if (!trackLink.length) return { title: '', version: '' };
+
+    const releaseName = trackLink.find('[class*="ReleaseName"]').first();
+    const rawTitle = releaseName.length ? normalizeText(releaseName.text()) : normalizeText(trackLink.text());
+
+    const versionMatch = rawTitle.match(/\s+([^(]+?)\s*\(([^)]+)\)\s*$/);
+    if (versionMatch) {
+        return {
+            title: normalizeText(versionMatch[1]),
+            version: normalizeText(versionMatch[2]),
+        };
+    }
+
+    const originalMixMatch = rawTitle.match(/^(.*?)\s+Original Mix$/i);
+    if (originalMixMatch) {
+        return {
+            title: normalizeText(originalMixMatch[1]),
+            version: 'Original Mix',
+        };
+    }
+
+    return {
+        title: rawTitle,
+        version: '',
+    };
+}
+
+function extractArtists($, row) {
+    const titleCell = $(row).find('[role="cell"].title').first();
+    const artists = [];
+    const seen = new Set();
+
+    titleCell.find('a[href^="/artist/"]').each((_, artistEl) => {
+        const artistName = normalizeText($(artistEl).text());
+        const key = artistName.toLowerCase();
+        if (artistName && !seen.has(key)) {
+            seen.add(key);
+            artists.push(artistName);
+        }
+    });
+
+    return artists;
+}
+
 /**
  * Scrapes the Beatport Top 100 and RETURNS an array of track objects
  */
@@ -23,19 +76,14 @@ export async function scrapeTop100(top100Url) {
         const tracks = [];
 
         $('[data-testid="tracks-table-row"]').each((i, el) => {
-            const titlePrimary = $(el).find('.Tables-shared-style__ReleaseName-sc-74ae448d-5').contents().not('span').text().trim();
-            const titleVersion = $(el).find('.Tables-shared-style__ReleaseName-sc-74ae448d-5 span').text().trim();
-            
-            const artists = [];
-            $(el).find('.ArtistNames-sc-9ed174b1-0 a').each((_, artistEl) => {
-                artists.push($(artistEl).text().trim());
-            });
+            const { title, version } = extractTrackTitle($, el);
+            const artists = extractArtists($, el);
 
-            const fullTitle = titleVersion.toLowerCase().includes('original mix') 
-                ? titlePrimary 
-                : `${titlePrimary} (${titleVersion})`;
+            const fullTitle = version && !/original mix/i.test(version)
+                ? `${title} (${version})`
+                : title;
 
-            if (artists.length > 0 && titlePrimary) {
+            if (artists.length > 0 && title) {
                 // Return as objects so findDuplicateTracks can read them
                 tracks.push({
                     name: fullTitle,
@@ -43,6 +91,10 @@ export async function scrapeTop100(top100Url) {
                 });
             }
         });
+
+        if (tracks.length === 0) {
+            console.warn('⚠️ Beatport rows were found, but no tracks were parsed. The page structure may have changed again.');
+        }
 
         console.log(`✅ Scraped ${tracks.length} tracks.`);
         return tracks;
