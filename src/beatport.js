@@ -1,11 +1,14 @@
 import axios from 'axios';
 import * as cheerio from 'cheerio';
 import fs from 'fs';
+import { connectDB, executeSQL, existsAllTables } from './sql.js';
+import { compareSongsAlreadyListened } from './utils.js';
 
 
 // NOTE: Don't use top releases, because those are albums and is more tricky to scrape
 
 const textFileName = 'beatport_tracks.txt';
+const notFoundFileName = 'beatport_not_found.txt';
 
 function normalizeText(value) {
     return value.replace(/\s+/g, ' ').trim();
@@ -58,6 +61,22 @@ function extractArtists($, row) {
 
     return artists;
 }
+
+const parseBeatportLine = (line) => {
+    const trimmed = line.trim();
+    if (!trimmed) return null;
+
+    const splitIndex = trimmed.lastIndexOf(' - ');
+    if (splitIndex === -1) return null;
+
+    const name = trimmed.slice(0, splitIndex).trim();
+    const artist = trimmed.slice(splitIndex + 3).trim();
+
+    if (!name || !artist) return null;
+    return { name, artist };
+};
+
+const trackKey = (track) => `${track.name}|||${track.artist}`;
 
 /**
  * Scrapes the Beatport Top 100 and RETURNS an array of track objects
@@ -144,4 +163,48 @@ async function runScraper() {
     console.log(`Duplicates:    ${allTracks.length - uniqueTracks.length}`);
 }
 
-runScraper();
+async function runBeatportCheck() {
+    let db;
+    try {
+        const raw = fs.readFileSync(textFileName, 'utf8');
+        const beatportTracks = raw
+            .split('\n')
+            .map(parseBeatportLine)
+            .filter(Boolean);
+
+        if (beatportTracks.length === 0) {
+            console.log(`No valid tracks found in ${textFileName}`);
+            return;
+        }
+
+        db = await connectDB();
+        await existsAllTables(db);
+
+        const dbTracks = await executeSQL(db, 'SELECT name, artist FROM tracks');
+
+        const foundTracks = compareSongsAlreadyListened(beatportTracks, dbTracks);
+        const foundKeys = new Set(foundTracks.map(trackKey));
+
+        const notFoundTracks = beatportTracks.filter((t) => !foundKeys.has(trackKey(t)));
+
+        const output = notFoundTracks.map((t) => `${t.name} - ${t.artist}`).join('\n');
+        fs.writeFileSync(notFoundFileName, output);
+
+        console.log('--- Beatport Track Check ---');
+        console.log(`Input tracks:   ${beatportTracks.length}`);
+        console.log(`Found in DB:    ${foundTracks.length}`);
+        console.log(`Not found:      ${notFoundTracks.length}`);
+        console.log(`Output written: ${notFoundFileName}`);
+    } catch (err) {
+        console.error('Failed to check Beatport tracks:', err.message);
+    } finally {
+        if (db) db.close();
+    }
+}
+
+async function runBeatportPipeline() {
+    await runScraper();
+    await runBeatportCheck();
+}
+
+runBeatportPipeline();

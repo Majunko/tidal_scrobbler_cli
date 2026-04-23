@@ -8,7 +8,7 @@
   "main": "index.js",
   "scripts": {
     "start": "node --env-file=.env src/index.js",
-    "beatport": "node src/beatport.js",
+    "beatport": "node --env-file=.env src/beatport.js",
     "beatport-check": "node --env-file=.env src/beatport_check.js",
     "oauth": "node --env-file=.env src/tidal_oauth.js"
   },

@@ -134,8 +134,13 @@ export const normalizeArtist = (artist) => {
 
 const normalizeArtistSet = (artist) => {
   if (!artist) return new Set();
+
+  const artistString = Array.isArray(artist)
+    ? artist.join(', ')
+    : String(artist);
+
   return new Set(
-    artist
+    artistString
       .replace(/(\s*&\s*|,\s*)/g, ',')
       .split(',')
       .map(a => removeDiacritics(a.trim().toLowerCase()))
@@ -176,6 +181,9 @@ export const compareSongsAlreadyListened = (tidalSongs, dbSongs) => {
 }
 
 const isFuzzyTitleMatch = (titleA, titleB) => {
+  titleA = String(titleA ?? '');
+  titleB = String(titleB ?? '');
+
   // First check for exact match
   if (titleA === titleB) return true;
   
