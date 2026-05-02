@@ -6,3 +6,6 @@ package-lock.json
 listened.json
 duplicates.json
 test.js
+beatport_not_found.txt
+beatport_tracks.txt
+.codex

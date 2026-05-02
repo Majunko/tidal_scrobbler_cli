@@ -1,6 +1,7 @@
 import axios from 'axios';
 import * as cheerio from 'cheerio';
 import fs from 'fs';
+import path from 'path';
 import { connectDB, executeSQL, existsAllTables } from './sql.js';
 import { compareSongsAlreadyListened } from './utils.js';
 
@@ -9,48 +10,53 @@ import { compareSongsAlreadyListened } from './utils.js';
 
 const textFileName = 'beatport_tracks.txt';
 const notFoundFileName = 'beatport_not_found.txt';
+const htmlFallbackFile = process.env.BEATPORT_HTML_FILE;
 
 function normalizeText(value) {
-    return value.replace(/\s+/g, ' ').trim();
+    return String(value ?? '').replace(/\s+/g, ' ').trim();
+}
+
+function looksLikeCloudflareBlock(html) {
+    return /just a moment|cloudflare|attention required|verify you are human/i.test(html);
+}
+
+function loadHtmlFromFallbackFile() {
+    if (!htmlFallbackFile) return null;
+
+    const resolvedPath = path.resolve(htmlFallbackFile);
+    if (!fs.existsSync(resolvedPath)) {
+        console.warn(`⚠️ BEATPORT_HTML_FILE points to a missing file: ${resolvedPath}`);
+        return null;
+    }
+
+    console.log(`📄 Loading Beatport HTML from ${resolvedPath}`);
+    return fs.readFileSync(resolvedPath, 'utf8');
 }
 
 function extractTrackTitle($, row) {
-    const titleCell = $(row).find('[role="cell"].title').first();
-    const trackLink = titleCell.find('a[href^="/track/"]').first();
+    const trackLink = $(row).find('a[href*="/track/"]').first();
 
-    if (!trackLink.length) return { title: '', version: '' };
+    if (!trackLink.length) {
+        const fallbackTitle = normalizeText($(row).text());
+        return fallbackTitle ? { title: fallbackTitle, version: '' } : { title: '', version: '' };
+    }
 
+    const titleFromAttribute = normalizeText(trackLink.attr('title'));
     const releaseName = trackLink.find('[class*="ReleaseName"]').first();
-    const rawTitle = releaseName.length ? normalizeText(releaseName.text()) : normalizeText(trackLink.text());
-
-    const versionMatch = rawTitle.match(/\s+([^(]+?)\s*\(([^)]+)\)\s*$/);
-    if (versionMatch) {
-        return {
-            title: normalizeText(versionMatch[1]),
-            version: normalizeText(versionMatch[2]),
-        };
-    }
-
-    const originalMixMatch = rawTitle.match(/^(.*?)\s+Original Mix$/i);
-    if (originalMixMatch) {
-        return {
-            title: normalizeText(originalMixMatch[1]),
-            version: 'Original Mix',
-        };
-    }
+    const rawTitle = titleFromAttribute || (releaseName.length ? normalizeText(releaseName.text()) : normalizeText(trackLink.text()));
+    const cleanTitle = rawTitle.replace(/\s+Original Mix$/i, '').trim();
 
     return {
-        title: rawTitle,
+        title: cleanTitle,
         version: '',
     };
 }
 
 function extractArtists($, row) {
-    const titleCell = $(row).find('[role="cell"].title').first();
     const artists = [];
     const seen = new Set();
 
-    titleCell.find('a[href^="/artist/"]').each((_, artistEl) => {
+    $(row).find('a[href*="/artist/"]').each((_, artistEl) => {
         const artistName = normalizeText($(artistEl).text());
         const key = artistName.toLowerCase();
         if (artistName && !seen.has(key)) {
@@ -60,6 +66,45 @@ function extractArtists($, row) {
     });
 
     return artists;
+}
+
+function extractTracksFromHtml(html) {
+    const $ = cheerio.load(html);
+    const tracks = [];
+    const rowSelectors = [
+        '[data-testid="tracks-list-item"]',
+        '[data-testid*="tracks-list-item"]',
+        '[class*="Lists-shared-style__Item"]',
+        '[class*="TrackListItem"]',
+        '[data-testid="tracks-table-row"]',
+        'tr[data-testid*="track"]',
+        '[role="row"][data-testid*="track"]',
+    ];
+
+    let rows = $();
+    for (const selector of rowSelectors) {
+        const found = $(selector);
+        if (found.length > 0) {
+            rows = found;
+            break;
+        }
+    }
+
+    rows.each((i, el) => {
+        const { title, version } = extractTrackTitle($, el);
+        const artists = extractArtists($, el);
+
+        const fullTitle = title;
+
+        if (artists.length > 0 && title) {
+            tracks.push({
+                name: fullTitle,
+                artist: artists,
+            });
+        }
+    });
+
+    return tracks;
 }
 
 const parseBeatportLine = (line) => {
@@ -83,36 +128,47 @@ const trackKey = (track) => `${track.name}|||${track.artist}`;
  */
 export async function scrapeTop100(top100Url) {
     try {
-        console.log(`🚀 Fetching ${top100Url}...`);
-        
-        const { data } = await axios.get(top100Url, {
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-            }
-        });
+        let html = null;
 
-        const $ = cheerio.load(data);
-        const tracks = [];
+        if (htmlFallbackFile) {
+            html = loadHtmlFromFallbackFile();
+        }
 
-        $('[data-testid="tracks-table-row"]').each((i, el) => {
-            const { title, version } = extractTrackTitle($, el);
-            const artists = extractArtists($, el);
+        if (!html) {
+            console.log(`🚀 Fetching ${top100Url}...`);
 
-            const fullTitle = version && !/original mix/i.test(version)
-                ? `${title} (${version})`
-                : title;
-
-            if (artists.length > 0 && title) {
-                // Return as objects so findDuplicateTracks can read them
-                tracks.push({
-                    name: fullTitle,
-                    artist: artists // keeping as array for utils compatibility
+            try {
+                const response = await axios.get(top100Url, {
+                    headers: {
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                        'Accept-Language': 'en-US,en;q=0.9',
+                    },
+                    validateStatus: () => true,
                 });
+
+                if (response.status >= 200 && response.status < 300) {
+                    html = response.data;
+                } else {
+                    console.warn(`⚠️ Beatport returned HTTP ${response.status}.`);
+                    if (typeof response.data === 'string' && looksLikeCloudflareBlock(response.data)) {
+                        console.warn('⚠️ The response looks like a Cloudflare challenge page.');
+                    }
+                }
+            } catch (requestError) {
+                console.warn(`⚠️ Network request failed: ${requestError.message}`);
             }
-        });
+        }
+
+        if (!html) {
+            console.error('❌ No HTML available to parse. If you already captured the page source in a browser, set BEATPORT_HTML_FILE to that saved HTML file.');
+            return [];
+        }
+
+        const tracks = extractTracksFromHtml(html);
 
         if (tracks.length === 0) {
-            console.warn('⚠️ Beatport rows were found, but no tracks were parsed. The page structure may have changed again.');
+            console.warn('⚠️ Beatport HTML was loaded, but no tracks were parsed. The page structure may have changed again.');
         }
 
         console.log(`✅ Scraped ${tracks.length} tracks.`);
@@ -138,34 +194,32 @@ async function runScraper() {
         allTracks = allTracks.concat(tracks);
     }
 
-    // 2. Filter out duplicates using a "Seen" Set
-    // We create a unique key for each track to compare them
-    const seen = new Set();
-    const uniqueTracks = allTracks.filter(track => {
-        const artistStr = Array.isArray(track.artist) ? track.artist.join(',') : track.artist;
-        const key = `${track.name.toLowerCase()}|${artistStr.toLowerCase()}`;
-        
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
-    });
-
-    // 3. Create a complete file with no duplicates
-    const fileContent = uniqueTracks
+    // Keep the scraped Beatport ranking exactly as it appears on the page.
+    const fileContent = allTracks
         .map(t => `${t.name} - ${Array.isArray(t.artist) ? t.artist.join(', ') : t.artist}`)
         .join('\n');
 
-    fs.writeFileSync(textFileName, fileContent);
+    if (allTracks.length > 0) {
+        fs.writeFileSync(textFileName, `${fileContent}\n`);
+    } else {
+        console.warn(`⚠️ Skipping write to ${textFileName} because no tracks were scraped.`);
+    }
     
     console.log(`--- Stats ---`);
     console.log(`Total Scraped: ${allTracks.length}`);
-    console.log(`Unique Saved:  ${uniqueTracks.length}`);
-    console.log(`Duplicates:    ${allTracks.length - uniqueTracks.length}`);
+    console.log(`Saved:         ${allTracks.length}`);
+
+    return allTracks.length;
 }
 
 async function runBeatportCheck() {
     let db;
     try {
+        if (!fs.existsSync(textFileName)) {
+            console.log(`No ${textFileName} file found. Skipping Beatport track check.`);
+            return;
+        }
+
         const raw = fs.readFileSync(textFileName, 'utf8');
         const beatportTracks = raw
             .split('\n')
@@ -203,7 +257,13 @@ async function runBeatportCheck() {
 }
 
 async function runBeatportPipeline() {
-    await runScraper();
+    const scrapedCount = await runScraper();
+
+    if (scrapedCount === 0) {
+        console.log('Skipping Beatport track check because no tracks were scraped.');
+        return;
+    }
+
     await runBeatportCheck();
 }
 
