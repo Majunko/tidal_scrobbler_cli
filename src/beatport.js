@@ -42,8 +42,8 @@ function extractTrackTitle($, row) {
     }
 
     const titleFromAttribute = normalizeText(trackLink.attr('title'));
-    const releaseName = trackLink.find('[class*="ReleaseName"]').first();
-    const rawTitle = titleFromAttribute || (releaseName.length ? normalizeText(releaseName.text()) : normalizeText(trackLink.text()));
+    const titleText = normalizeText(trackLink.text());
+    const rawTitle = titleText || titleFromAttribute || '';
     const cleanTitle = rawTitle.replace(/\s+Original Mix$/i, '').trim();
 
     return {
