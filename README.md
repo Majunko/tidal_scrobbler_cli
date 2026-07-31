@@ -43,3 +43,18 @@ To use this project, you need to:
    # Start the process
    npm start
    ```
+
+## Beatport Top 100 (optional)
+
+The Beatport Top 100 is fetched from Beatport's official API v4 (`api.beatport.com`) instead of
+scraping the HTML (which is blocked by Cloudflare). To use it you need a Beatport account:
+
+1. Set your credentials in the `.env` file:
+   ```
+   BEATPORT_USERNAME='your-beatport-email'
+   BEATPORT_PASSWORD='your-beatport-password'
+   ```
+2. On the first run the script obtains an OAuth token automatically and stores it in the `.env`
+   file (`BEATPORT_ACCESS_TOKEN`, `BEATPORT_REFRESH_TOKEN`, `BEATPORT_TOKEN_EXPIRES_AT`). It
+   refreshes itself afterwards, so no other secret files are needed.
+3. Run `npm run beatport`.
