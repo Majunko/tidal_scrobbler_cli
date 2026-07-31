@@ -1,19 +1,16 @@
-import sqlite3 from 'sqlite3';
+import { DatabaseSync } from 'node:sqlite';
+
 const lastFmDatabaseName = process.env.LASTFM_DATABASE_NAME;
 
 // Function to connect to the SQLite database
 export const connectDB = async () => {
-  return new Promise((resolve, reject) => {
-    const db = new sqlite3.Database(lastFmDatabaseName, (err) => {
-      if (err) {
-        console.error('Failed to connect to the database:', err.message);
-        reject(err);
-      } else {
-        //console.log('Connected to the database.');
-        resolve(db);
-      }
-    });
-  });
+  try {
+    const db = new DatabaseSync(lastFmDatabaseName);
+    return db;
+  } catch (err) {
+    console.error('Failed to connect to the database:', err.message);
+    throw err;
+  }
 }
 
 const createTracksTable = async (db) => {
@@ -38,60 +35,51 @@ export const existsAllTables = async (db) => {
 
 // Function to insert a new track into the database
 export const insertTrack = async (db, track) => {
-  return new Promise((resolve, reject) => {
-    db.run(
-      'INSERT INTO tracks (name, artist, album, date) VALUES (?, ?, ?, ?)',
-      [
-        track.name,
-        track.artist,
-        track.album ?? '', // Use empty string if album is undefined
-        track.date ?? new Date().toISOString() // Use current date if missing
-      ],
-      function (err) {
-        if (err) {
-          console.error('SQLite insert error:', err.message);
-          reject(err);
-        } else {
-          resolve(this.lastID);
-        }
-      }
+  try {
+    const stmt = db.prepare(
+      'INSERT INTO tracks (name, artist, album, date) VALUES (?, ?, ?, ?)'
     );
-  });
+    const result = stmt.run(
+      track.name,
+      track.artist,
+      track.album ?? '', // Use empty string if album is undefined
+      track.date ?? new Date().toISOString() // Use current date if missing
+    );
+    return result.lastID;
+  } catch (err) {
+    console.error('SQLite insert error:', err.message);
+    throw err;
+  }
 };
 
 export const getLatestTrack = async (db) => {
-  return new Promise((resolve, reject) => {
-      db.get(`
-          SELECT artist, album, name, date
-          FROM tracks
-          ORDER BY date DESC
-          LIMIT 1
-      `, (err, row) => {
-          if (err) {
-              console.error('Failed to get latest track:', err.message);
-              reject(err);
-          } else {
-              resolve(row);
-          }
-      });
-  });
+  try {
+    const stmt = db.prepare(`
+      SELECT artist, album, name, date
+      FROM tracks
+      ORDER BY date DESC
+      LIMIT 1
+    `);
+    return stmt.get();
+  } catch (err) {
+    console.error('Failed to get latest track:', err.message);
+    throw err;
+  }
 }
 
 export const checkTrackExists = async (db, artist, name) => {
-  return new Promise((resolve, reject) => {
-      db.get(`
-          SELECT id
-          FROM tracks
-          WHERE artist = ? AND name = ? LIMIT 1
-      `, [artist, name], (err, row) => {
-          if (err) {
-              console.error('Error checking if track exists:', err.message);
-              reject(err);
-          } else {
-              resolve(!!row);
-          }
-      });
-  });
+  try {
+    const stmt = db.prepare(`
+      SELECT id
+      FROM tracks
+      WHERE artist = ? AND name = ? LIMIT 1
+    `);
+    const row = stmt.get(artist, name);
+    return !!row;
+  } catch (err) {
+    console.error('Error checking if track exists:', err.message);
+    throw err;
+  }
 }
 
 export const executeSQL = async (db, sql, params = []) => {
@@ -99,21 +87,17 @@ export const executeSQL = async (db, sql, params = []) => {
     throw new Error('db parameter is required');
   }
 
-  return new Promise((resolve, reject) => {
+  try {
     const statement = db.prepare(sql);
-    statement.all(...params, (err, rows) => {
-      statement.finalize(); // Important to release resources
-      if (err) {
-        reject(err);
-        return;
-      }
-      // For SELECT queries, resolve with the rows
-      if (sql.toLowerCase().startsWith('select')) {
-        resolve(rows);
-      } else {
-        // For INSERT, UPDATE, DELETE, etc., resolve without data (or with affected rows if needed)
-        resolve();
-      }
-    });
-  });
+    const rows = statement.all(...params);
+    // For SELECT queries, resolve with the rows
+    if (sql.toLowerCase().startsWith('select')) {
+      return rows;
+    } else {
+      // For INSERT, UPDATE, DELETE, etc., resolve without data (or with affected rows if needed)
+      return;
+    }
+  } catch (err) {
+    throw err;
+  }
 };
