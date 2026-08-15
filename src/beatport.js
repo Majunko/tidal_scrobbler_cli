@@ -3,8 +3,8 @@ import { fetchNewestTracks } from './beatport_api.js';
 import { connectDB, executeSQL, existsAllTables } from './sql.js';
 import { compareSongsAlreadyListened } from './track_matcher.js';
 
-const textFileName = 'beatport_tracks.txt';
-const notFoundFileName = 'beatport_not_found.txt';
+const textFileName = 'beatport_scraped.txt';
+const notFoundFileName = 'beatport_pending.txt';
 
 const GENRE_ID_FROM_URL = /\/genre\/[^/]+\/(\d+)\/(?:releases|top-100|hype-100)/i;
 

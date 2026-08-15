@@ -65,5 +65,20 @@ The script reads the URL(s) defined in `src/beatport.js`. By default it uses the
 filter is defined in the `.env` file via `BEATPORT_SUB_GENRE_IDS` (a comma-separated list of sub-genre
 ids, e.g. `224,225` for `Deep / Hypnotic` and `Raw`); leave it empty to include every sub-genre of
 the genre. The `per_page` query parameter in the URL is picked up automatically. The resulting tracks
-are saved to `beatport_tracks.txt` and checked against your listening database, writing the ones you
-haven't listened to yet to `beatport_not_found.txt`.
+are saved to `beatport_scraped.txt` and checked against your listening database, writing the ones you
+haven't listened to yet to `beatport_pending.txt`.
+
+## Migrate Beatport tracks to a Tidal playlist (optional)
+
+`npm run tidal-migrate` reads `beatport_pending.txt` and, for every track, searches Tidal and tries to
+find the matching track. If exactly one track matches (same title and same artists) it is added to the
+Tidal playlist defined by `TIDAL_PLAYLIST_ID`. Tracks that could not be found are written to
+`tidal_not_found.txt`; ambiguous matches (multiple candidates, or a same-title track by a different
+artist) are written to `tidal_needs_review.txt` with their Tidal track IDs so you can decide manually.
+Imported tracks are removed from `beatport_pending.txt`.
+
+To preview the results without touching the playlist or the pending file, run:
+
+```bash
+npm run tidal-migrate:dry
+```

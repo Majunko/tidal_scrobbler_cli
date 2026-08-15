@@ -33,8 +33,10 @@ export const deleteFile = (path) => {
 }
 
 export const printSameLine = (text) => {
-  process.stdout.clearLine(0);
-  process.stdout.cursorTo(0);
+  if (typeof process.stdout.clearLine === 'function' && typeof process.stdout.cursorTo === 'function') {
+    process.stdout.clearLine(0);
+    process.stdout.cursorTo(0);
+  }
   process.stdout.write(text);
 }
 

@@ -3,7 +3,7 @@ import Fuse from 'fuse.js';
 /**
  * Remove diacritics (accents, eg: Fēlēs) from a string
  *  */
-const removeDiacritics = (str) => {
+export const removeDiacritics = (str) => {
   return str.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 }
 
@@ -24,7 +24,7 @@ export const normalizeArtist = (artist) => {
     .join(',');
 }
 
-const normalizeArtistSet = (artist) => {
+export const normalizeArtistSet = (artist) => {
   if (!artist) return new Set();
 
   const artistString = Array.isArray(artist)
@@ -48,7 +48,7 @@ const isSubset = (aSet, bSet) => {
   return true;
 }
 
-const isArtistSetMatch = (aSet, bSet) => {
+export const isArtistSetMatch = (aSet, bSet) => {
   if (aSet.size === 0 || bSet.size === 0) return false;
 
   if (aSet.size === bSet.size) {
