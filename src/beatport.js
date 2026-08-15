@@ -21,8 +21,8 @@ function extractQueryParam(url, key) {
     }
 }
 
-function extractSubGenreIds(url) {
-    const raw = extractQueryParam(url, 'sub_genre_id');
+function getSubGenreIdsFromEnv() {
+    const raw = process.env.BEATPORT_SUB_GENRE_IDS;
     if (!raw) return [];
     return raw
         .split(',')
@@ -65,7 +65,7 @@ export async function scrapeNewReleases(releasesUrl) {
         return [];
     }
 
-    const subGenreIds = extractSubGenreIds(releasesUrl);
+    const subGenreIds = getSubGenreIdsFromEnv();
     const count = extractPerPage(releasesUrl);
 
     try {
@@ -85,9 +85,7 @@ export async function scrapeNewReleases(releasesUrl) {
 
 async function runScraper() {
     const urls = [
-        'https://www.beatport.com/genre/techno-raw-deep-hypnotic/92/releases?sub_genre_id=224%2C225',
-        // 'https://www.beatport.com/genre/techno-peak-time-driving/6/top-100',
-        // 'https://www.beatport.com/genre/techno-peak-time-driving/6/hype-100'
+        'https://www.beatport.com/genre/techno-raw-deep-hypnotic/92/releases',
     ];
 
     // 1. Save all scraped data in a variable

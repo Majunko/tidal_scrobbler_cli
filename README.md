@@ -61,8 +61,9 @@ need a Beatport account:
 3. Run `npm run beatport`.
 
 The script reads the URL(s) defined in `src/beatport.js`. By default it uses the releases tab of
-`Techno (Raw / Deep / Hypnotic)` (genre `92`) filtered to the `Deep / Hypnotic` (`224`) and `Raw`
-(`225`) sub-genres, ordered by publish date (newest first). You can point it at any genre releases
-URL and it will pick up the `sub_genre_id` and `per_page` query parameters automatically. The
-resulting tracks are saved to `beatport_tracks.txt` and checked against your listening database,
-writing the ones you haven't listened to yet to `beatport_not_found.txt`.
+`Techno (Raw / Deep / Hypnotic)` (genre `92`) ordered by publish date (newest first). The sub-genre
+filter is defined in the `.env` file via `BEATPORT_SUB_GENRE_IDS` (a comma-separated list of sub-genre
+ids, e.g. `224,225` for `Deep / Hypnotic` and `Raw`); leave it empty to include every sub-genre of
+the genre. The `per_page` query parameter in the URL is picked up automatically. The resulting tracks
+are saved to `beatport_tracks.txt` and checked against your listening database, writing the ones you
+haven't listened to yet to `beatport_not_found.txt`.
