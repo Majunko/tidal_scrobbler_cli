@@ -12,13 +12,15 @@ import {
   printSameLine,
   checkEnvVariables,
   updateEnvVariable,
-  findDuplicateTracks,
   sortAndJoinArtists,
-  compareSongsAlreadyListened,
   getLocalTimestamp,
   deleteFile,
   chunkArray,
 } from './utils.js';
+import {
+  findDuplicateTracks,
+  compareSongsAlreadyListened,
+} from './track_matcher.js';
 
 // --- TIDAL ---
 const tidalClientId = process.env.TIDAL_CLIENT_ID;

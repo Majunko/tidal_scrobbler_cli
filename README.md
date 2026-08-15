@@ -44,10 +44,11 @@ To use this project, you need to:
    npm start
    ```
 
-## Beatport Top 100 (optional)
+## Beatport New Releases (optional)
 
-The Beatport Top 100 is fetched from Beatport's official API v4 (`api.beatport.com`) instead of
-scraping the HTML (which is blocked by Cloudflare). To use it you need a Beatport account:
+The newest tracks from the Beatport releases tab are fetched from Beatport's official API v4
+(`api.beatport.com`) instead of scraping the HTML (which is blocked by Cloudflare). To use it you
+need a Beatport account:
 
 1. Set your credentials in the `.env` file:
    ```
@@ -58,3 +59,10 @@ scraping the HTML (which is blocked by Cloudflare). To use it you need a Beatpor
    file (`BEATPORT_ACCESS_TOKEN`, `BEATPORT_REFRESH_TOKEN`, `BEATPORT_TOKEN_EXPIRES_AT`). It
    refreshes itself afterwards, so no other secret files are needed.
 3. Run `npm run beatport`.
+
+The script reads the URL(s) defined in `src/beatport.js`. By default it uses the releases tab of
+`Techno (Raw / Deep / Hypnotic)` (genre `92`) filtered to the `Deep / Hypnotic` (`224`) and `Raw`
+(`225`) sub-genres, ordered by publish date (newest first). You can point it at any genre releases
+URL and it will pick up the `sub_genre_id` and `per_page` query parameters automatically. The
+resulting tracks are saved to `beatport_tracks.txt` and checked against your listening database,
+writing the ones you haven't listened to yet to `beatport_not_found.txt`.

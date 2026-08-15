@@ -1,6 +1,5 @@
 import { writeFileSync, readFileSync, existsSync, unlinkSync } from 'fs';
 import crypto from 'crypto';
-import Fuse from 'fuse.js';
 
 export const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -75,18 +74,6 @@ export const updateEnvVariable = (key, newValue) => {
 }
 
 /**
- * Remove diacritics (accents, eg: Fēlēs) from a string
- *  */
-const removeDiacritics = (str) => {
-  return str.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-}
-
-/**
- * Normalize brackets/parentheses in titles (e.g. '(' → '[' and ')' → ']')
- */
-export const normalize = (title = '') => String(title).replace(/[\[\(]/g, '[').replace(/[\]\)]/g, ']');
-
-/**
  * Returns an array of slices, each at most `size` elements long.
  * Example: chunkArray([1,2,3,4,5], 2) → [[1,2],[3,4],[5]]
  */
@@ -119,125 +106,3 @@ export const sortAndJoinArtists = (tracks) => {
     };
   });
 };
-
-// Normalize artist string: split by comma/ampersand, trim, sort, join
-export const normalizeArtist = (artist) => {
-  if (!artist) return '';
-  // Replace ' & ' and ',' with a common separator, then split
-  return artist
-    .replace(/(\s*&\s*|,\s*)/g, ',') // unify separators: "A & B, C" → "A,B,C"
-    .split(',')
-    .map(a => removeDiacritics(a.trim().toLowerCase()))
-    .sort()
-    .join(',');
-}
-
-const normalizeArtistSet = (artist) => {
-  if (!artist) return new Set();
-
-  const artistString = Array.isArray(artist)
-    ? artist.join(', ')
-    : String(artist);
-
-  return new Set(
-    artistString
-      .replace(/(\s*&\s*|,\s*)/g, ',')
-      .split(',')
-      .map(a => removeDiacritics(a.trim().toLowerCase()))
-      .filter(Boolean)
-  );
-}
-
-const isSubset = (aSet, bSet) => {
-  if (aSet.size === 0) return false;
-  for (const v of aSet) {
-    if (!bSet.has(v)) return false;
-  }
-  return true;
-}
-
-const isArtistMatch = (artistA, artistB) => {
-  const a = normalizeArtistSet(artistA);
-  const b = normalizeArtistSet(artistB);
-
-  if (a.size === 0 || b.size === 0) return false;
-
-  if (a.size === b.size) {
-    return isSubset(a, b);
-  }
-
-  // Allow matches when one side is missing artists (e.g. Tidal omits collaborators)
-  return isSubset(a, b) || isSubset(b, a);
-}
-
-// Return the songs i've never listened to
-export const compareSongsAlreadyListened = (tidalSongs, dbSongs) => {
-  return tidalSongs.filter(tidalSong =>
-    dbSongs.some(dbSong =>
-      isFuzzyTitleMatch(dbSong.name, tidalSong.name) &&
-      isArtistMatch(dbSong.artist, tidalSong.artist)
-    )
-  );
-}
-
-const isFuzzyTitleMatch = (titleA, titleB) => {
-  titleA = String(titleA ?? '');
-  titleB = String(titleB ?? '');
-
-  // First check for exact match
-  if (titleA === titleB) return true;
-  
-  // Normalize brackets/parentheses and try again
-  if (normalize(titleA) === normalize(titleB)) return true;
-  
-  // Normalize diacritics (accents) for comparison
-  const normalizedA = removeDiacritics(titleA);
-  const normalizedB = removeDiacritics(titleB);
-  
-  if (normalizedA === normalizedB) return true;
-  
-  // Only fuzzy match if both titles are reasonably short
-  if (titleA.length < 50 && titleB.length < 50) {
-    const fuse = new Fuse([normalizedA], {
-      includeScore: true,
-      threshold: 0.05, // 95% similarity - extremely strict
-    });
-    const result = fuse.search(normalizedB);
-    return result.length > 0;
-  }
-  
-  return false;
-}
-
-/**
- * Returns only the duplicate tracks
- */
-export const findDuplicateTracks = (tracks) => {
-  const seen = new Map(); // Stores composite keys we've encountered
-  const duplicates = []; // Stores the actual duplicate objects
-
-  const normalizeTitleForKey = (title = '') =>
-    normalize(removeDiacritics(String(title)))
-      .replace(/\s+/g, ' ')
-      .trim()
-      .toLowerCase();
-
-  for (const track of tracks) {
-    // Normalize title and artist to create a robust key
-    const titleKey = normalizeTitleForKey(track.name);
-
-    // Ensure artist is a string; if array, join with comma
-    const artistRaw = Array.isArray(track.artist) ? track.artist.join(', ') : (track.artist || '');
-    const artistKey = normalizeArtist(artistRaw);
-
-    const key = `${titleKey}|${artistKey}`;
-
-    if (seen.has(key)) {
-      duplicates.push(track); // Found a duplicate
-    } else {
-      seen.set(key, true); // Mark this combination as seen
-    }
-  }
-
-  return duplicates;
-}
