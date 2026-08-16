@@ -13,7 +13,7 @@ export const removeDiacritics = (str) => {
 export const normalize = (title = '') => String(title).replace(/[\[\(]/g, '[').replace(/[\]\)]/g, ']');
 
 // Normalize artist string: split by comma/ampersand, trim, sort, join
-export const normalizeArtist = (artist) => {
+const normalizeArtist = (artist) => {
   if (!artist) return '';
   // Replace ' & ' and ',' with a common separator, then split
   return artist
@@ -39,6 +39,14 @@ export const normalizeArtistSet = (artist) => {
       .filter(Boolean)
   );
 }
+
+// Canonical title key: diacritics/brackets normalized, whitespace collapsed,
+// lowercased. Used for exact title comparisons and duplicate detection.
+export const normalizeTitleKey = (title = '') =>
+  normalize(removeDiacritics(String(title)))
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
 
 const isSubset = (aSet, bSet) => {
   if (aSet.size === 0) return false;
@@ -192,15 +200,9 @@ export const findDuplicateTracks = (tracks) => {
   const seen = new Map(); // Stores composite keys we've encountered
   const duplicates = []; // Stores the actual duplicate objects
 
-  const normalizeTitleForKey = (title = '') =>
-    normalize(removeDiacritics(String(title)))
-      .replace(/\s+/g, ' ')
-      .trim()
-      .toLowerCase();
-
   for (const track of tracks) {
     // Normalize title and artist to create a robust key
-    const titleKey = normalizeTitleForKey(track.name);
+    const titleKey = normalizeTitleKey(track.name);
 
     // Ensure artist is a string; if array, join with comma
     const artistRaw = Array.isArray(track.artist) ? track.artist.join(', ') : (track.artist || '');

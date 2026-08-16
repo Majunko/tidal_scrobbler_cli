@@ -2,10 +2,11 @@ import fs from 'fs';
 import Fuse from 'fuse.js';
 import { pathToFileURL } from 'url';
 import { searchTracks, addTracksToPlaylist, getPlaylistTrackIds, getRequestCount } from './tidal_api.js';
-import { normalize, normalizeArtistSet, isArtistSetMatch, removeDiacritics } from './track_matcher.js';
-import { printSameLine } from './utils.js';
+import { normalizeArtistSet, isArtistSetMatch, normalizeTitleKey } from './track_matcher.js';
+import { printSameLine, parseBeatportLine } from './utils.js';
 
 const SOURCE_FILE = 'beatport_pending.txt';
+const SCRAPED_FILE = 'beatport_scraped.txt';
 const IMPORTED_FILE = 'tidal_imported.txt';
 const REVIEW_FILE = 'tidal_needs_review.txt';
 const NOT_FOUND_FILE = 'tidal_not_found.txt';
@@ -17,11 +18,7 @@ const playlistId = process.env.TIDAL_PLAYLIST_ID;
 // keeps the total request rate within Tidal's limits.
 const CONCURRENCY = 3;
 
-const normalizeTitle = (title) =>
-  normalize(removeDiacritics(String(title)))
-    .toLowerCase()
-    .replace(/\s+/g, ' ')
-    .trim();
+const normalizeTitle = normalizeTitleKey;
 
 const MIX_KEYWORDS = /(mix|edit|remix|version|dub|reprise|rework|acapella|instrumental|radio|extended|club|original|vocal|bonus|intro|outro|clean|dirty)/i;
 
@@ -60,20 +57,6 @@ const isExactTitle = (name, track) => {
   const aS = stripMixMarkers(a);
   const bS = stripMixMarkers(b);
   return Boolean(aS && bS && aS === bS);
-};
-
-const parseBeatportLine = (line) => {
-  const trimmed = line.trim();
-  if (!trimmed) return null;
-
-  const splitIndex = trimmed.lastIndexOf(' - ');
-  if (splitIndex === -1) return null;
-
-  const name = trimmed.slice(0, splitIndex).trim();
-  const artist = trimmed.slice(splitIndex + 3).trim();
-
-  if (!name || !artist) return null;
-  return { name, artist, line: trimmed };
 };
 
 // Cache search results by normalized query (dedupes in-flight requests too).
@@ -118,7 +101,7 @@ const dedupeMatches = (matches) => {
 
 // Tries the combined query first and only falls back to artist/title queries when
 // the accumulated candidates are not decisive, avoiding ~2/3 of the requests.
-export async function findCandidates(name, artist) {
+async function findCandidates(name, artist) {
   const seen = new Map();
   const addResults = (results) => {
     for (const track of results) {
@@ -149,7 +132,7 @@ export async function findCandidates(name, artist) {
   return { scored };
 }
 
-export const classify = (name, scored) => {
+const classify = (name, scored) => {
   const matches = scored.filter((c) => c.artistOk && c.titleOk);
   const distinct = dedupeMatches(matches);
   // Two Tidal ids for the same title+artists are the same track (e.g. released
@@ -278,10 +261,9 @@ async function migrate() {
     console.log(`${alreadyPresent} track(s) were already in the playlist.`);
   }
 
-  const importedSet = new Set(imported.map((i) => i.line));
-  const remaining = lines.filter((l) => !importedSet.has(l.line)).map((l) => l.line);
-  fs.writeFileSync(SOURCE_FILE, remaining.join('\n') + (remaining.length ? '\n' : ''));
-  console.log(`Removed ${imported.length} imported track(s) from ${SOURCE_FILE}.`);
+  fs.rmSync(SOURCE_FILE, { force: true });
+  fs.rmSync(SCRAPED_FILE, { force: true });
+  console.log(`\nDeleted ${SOURCE_FILE} and ${SCRAPED_FILE} (the classification lives in the tidal_*.txt files).`);
 }
 
 const isDirectRun = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;

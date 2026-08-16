@@ -76,6 +76,24 @@ export const updateEnvVariable = (key, newValue) => {
 }
 
 /**
+ * Parses a "Name - Artist" line (e.g. from beatport_pending.txt).
+ * Cuts at the LAST " - " so names containing " - " stay intact.
+ */
+export const parseBeatportLine = (line) => {
+  const trimmed = String(line).trim();
+  if (!trimmed) return null;
+
+  const splitIndex = trimmed.lastIndexOf(' - ');
+  if (splitIndex === -1) return null;
+
+  const name = trimmed.slice(0, splitIndex).trim();
+  const artist = trimmed.slice(splitIndex + 3).trim();
+
+  if (!name || !artist) return null;
+  return { name, artist, line: trimmed };
+};
+
+/**
  * Returns an array of slices, each at most `size` elements long.
  * Example: chunkArray([1,2,3,4,5], 2) → [[1,2],[3,4],[5]]
  */

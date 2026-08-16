@@ -1,10 +1,14 @@
 import fs from 'fs';
+import { pathToFileURL } from 'url';
 import { fetchTopTracks } from './beatport_api.js';
 import { connectDB, executeSQL, existsAllTables } from './sql.js';
 import { compareSongsAlreadyListened } from './track_matcher.js';
+import { parseBeatportLine } from './utils.js';
 
 const textFileName = 'beatport_scraped.txt';
 const notFoundFileName = 'beatport_pending.txt';
+const beatportUrlsFile = 'beatport_urls.txt';
+const defaultBeatportUrl = 'https://www.beatport.com/genre/techno-raw-deep-hypnotic/92/top-100';
 
 const GENRE_ID_FROM_URL = /\/genre\/[^/]+\/(\d+)\/top-100/i;
 
@@ -13,19 +17,21 @@ function extractGenreId(url) {
     return match ? Number(match[1]) : null;
 }
 
-const parseBeatportLine = (line) => {
-    const trimmed = line.trim();
-    if (!trimmed) return null;
-
-    const splitIndex = trimmed.lastIndexOf(' - ');
-    if (splitIndex === -1) return null;
-
-    const name = trimmed.slice(0, splitIndex).trim();
-    const artist = trimmed.slice(splitIndex + 3).trim();
-
-    if (!name || !artist) return null;
-    return { name, artist };
-};
+function resolveBeatportUrls() {
+    try {
+        if (fs.existsSync(beatportUrlsFile)) {
+            const urls = fs
+                .readFileSync(beatportUrlsFile, 'utf8')
+                .split('\n')
+                .map((line) => line.trim())
+                .filter((line) => line && !line.startsWith('#'));
+            if (urls.length > 0) return urls;
+        }
+    } catch (error) {
+        console.warn(`⚠️ Could not read ${beatportUrlsFile}: ${error.message}`);
+    }
+    return [defaultBeatportUrl];
+}
 
 const trackKey = (track) => `${track.name}|||${track.artist}`;
 
@@ -57,9 +63,9 @@ export async function scrapeGenre(genreUrl) {
 }
 
 async function runScraper() {
-    const urls = [
-        'https://www.beatport.com/genre/techno-raw-deep-hypnotic/92/top-100',
-    ];
+    const urls = resolveBeatportUrls();
+    console.log(`Scraping ${urls.length} URL(s):`);
+    urls.forEach((url) => console.log(`  - ${url}`));
 
     // 1. Save all scraped data in a variable, deduping across the lists
     let allTracks = [];
@@ -148,4 +154,11 @@ async function runBeatportPipeline() {
     await runBeatportCheck();
 }
 
-runBeatportPipeline();
+const isDirectRun = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+
+if (isDirectRun) {
+    runBeatportPipeline().catch((error) => {
+        console.error('Beatport pipeline failed:', error.message);
+        process.exit(1);
+    });
+}

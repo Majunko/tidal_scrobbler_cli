@@ -3,7 +3,6 @@ package-lock.json
 .env
 *.db
 *.txt
-listened.json
+!beatport_urls.txt
 duplicates.json
 test.js
-.codex

@@ -11,39 +11,26 @@ import {
   sleep,
   printSameLine,
   checkEnvVariables,
-  updateEnvVariable,
   sortAndJoinArtists,
   getLocalTimestamp,
   deleteFile,
   chunkArray,
 } from './utils.js';
+import { tidalFetch, getPlaylistItems } from './tidal_api.js';
 import {
   findDuplicateTracks,
   compareSongsAlreadyListened,
 } from './track_matcher.js';
 
 // --- TIDAL ---
-const tidalClientId = process.env.TIDAL_CLIENT_ID;
-const tidalClientSecret = process.env.TIDAL_CLIENT_SECRET;
-
-let tidalAccessToken = process.env.TIDAL_ACCESS_TOKEN;
-
 const tidalPlaylistId = process.env.TIDAL_PLAYLIST_ID;
 const tidalURL = 'https://openapi.tidal.com/v2';
-const tidalPlaylistUrl = `${tidalURL}/playlists/${tidalPlaylistId}/relationships/items?countryCode=US&locale=en-US`;
-
-const tidalHeaders = {
-  Accept: 'application/vnd.api+json',
-  Authorization: `Bearer ${tidalAccessToken}`,
-};
 
 const lastFmHeaders = {
   'User-Agent': 'LastFMScrobbler/1.0 (https://github.com/Majunko/tidal_scrobbler_cli)',
 };
 
 let tidalPlaylistSongs = [];
-let currentPageTidal = 1;
-let tidalTokenTries = 0;
 
 // --- LAST.FM ---
 const lastFmUserName = process.env.LASTFM_USERNAME;
@@ -114,7 +101,7 @@ async function getLastfmListeningHistory() {
         console.log('\nFinished fetching Last.fm history.');
       } else {
         page++;
-        await sleep(1000);
+        await sleep(250); // Last.fm allows 5 requests/second
       }
     } catch (error) {
       console.error(`\nError fetching data from ${url}:`, error.message);
@@ -127,12 +114,20 @@ async function getLastfmListeningHistory() {
   let insertedCount = 0;
 
   console.log('Saving Last.fm history to database (oldest to newest)...');
-  for (const track of reversedTracks) {
-    const exists = await checkTrackExists(db, track.artist, track.name);
-    if (!exists) {
-      await insertTrack(db, track);
-      insertedCount++;
+  db.exec('BEGIN');
+  try {
+    for (const track of reversedTracks) {
+      const exists = await checkTrackExists(db, track.artist, track.name);
+      if (!exists) {
+        await insertTrack(db, track);
+        insertedCount++;
+      }
     }
+    db.exec('COMMIT');
+  } catch (err) {
+    db.exec('ROLLBACK');
+    console.error('Failed to save tracks:', err.message);
+    throw err;
   }
 
   db.close((err) => {
@@ -145,111 +140,20 @@ async function getLastfmListeningHistory() {
   return [];
 }
 
-async function refreshTidalAccessToken() {
-  const url = 'https://auth.tidal.com/v1/oauth2/token';
-  const refreshToken = process.env.TIDAL_REFRESH_TOKEN;
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      Authorization: `Basic ${Buffer.from(`${tidalClientId}:${tidalClientSecret}`).toString('base64')}`,
-    },
-    body: new URLSearchParams({
-      grant_type: 'refresh_token',
-      refresh_token: refreshToken,
-    }),
-  });
-
-  if (!response.ok) {
-    throw new Error(`HTTP error! status: ${response.status}`);
-  }
-
-  const data = await response.json();
-  updateEnvVariable('TIDAL_ACCESS_TOKEN', data.access_token);
-  if (data.refresh_token) {
-    updateEnvVariable('TIDAL_REFRESH_TOKEN', data.refresh_token);
-  }
-  tidalAccessToken = data.access_token;
-  tidalHeaders.Authorization = `Bearer ${tidalAccessToken}`;
-  return data.access_token;
-}
-
-// Function to fetch data from a URL
-async function fetchTidalData(url) {
+// Fetch all playlist items (pagination handled by getPlaylistItems) and build
+// tidalPlaylistSongs in chunks to avoid an oversized filter[id] URL.
+async function getTidalPlaylistIds() {
   try {
-    const response = await fetch(url, { headers: tidalHeaders });
+    const items = await getPlaylistItems(tidalPlaylistId);
+    const chunks = chunkArray(items, 20); // /tracks filter[id] accepts at most 20 values
 
-    // Parse rate limit headers
-    const remainingRequests = parseInt(response.headers.get('x-ratelimit-remaining')) || 0;
-    const replenishRate = parseInt(response.headers.get('x-ratelimit-replenish-rate')) || 1; // Default to 1 request per second
-
-    switch (response.status) {
-      case 200:
-        if (remainingRequests <= 2) {
-          // Add a buffer of 2 requests
-          //console.log(`Approaching rate limit. Waiting ${replenishRate}s before continuing...`);
-          await sleep((replenishRate * 1000) + 100); // Convert to milliseconds
-        }
-        break;
-
-      case 401:
-        tidalTokenTries++;
-        console.log(`Access token expired or invalid. Refreshing token...`);
-        tidalAccessToken = await refreshTidalAccessToken();
-        tidalHeaders.Authorization = `Bearer ${tidalAccessToken}`;
-        return fetchTidalData(url); // Retry the request with the new access token
-        break;
-
-      case 404:
-        throw new Error("Playlist not found.\nPlease check if the playlist it's public or if it exists");
-        break;
-
-      case 429:
-        const retryAfter = parseInt(response.headers.get('Retry-After')) || replenishRate; // Use Retry-After or replenish rate
-        printSameLine(`Too many requests, waiting ${retryAfter}s and trying again...`);
-        await sleep(retryAfter * 1000 + 100); // Convert to milliseconds
-        return fetchTidalData(url); // Retry the request
-
-      default:
-        throw new Error(`HTTP error! status: ${response.status}`);
-        break;
-    }
-    return response.json();
-  } catch (error) {
-    console.error(`Error fetching data from ${url}:`, error.message);
-    return null;
-  }
-}
-
-// Main function to fetch playlist data and extract track id information
-async function getTidalPlaylistIds(playlistUrl) {
-  const trackIdsAndMetaItemIds = [];
-  try {
-    // Fetch playlist data
-    let playlistData = await fetchTidalData(playlistUrl);
-    if (!playlistData) return;
-
-    // Extract track details from the included array
-    const tracks = playlistData.data;
-
-    printSameLine(`Page: ${currentPageTidal}`);
-
-    for (const track of tracks) {
-      trackIdsAndMetaItemIds.push({ id: track?.id || 0, meta: { itemId: track?.meta?.itemId || null } });
+    for (let i = 0; i < chunks.length; i++) {
+      printSameLine(`Page: ${i + 1}`);
+      await getTidalTracksWithArtists(chunks[i]);
     }
 
-    await getTidalTracksWithArtists(trackIdsAndMetaItemIds);
-
-    // Check for next page
-    let nextPage = playlistData?.links?.next || null;
-
-    if (nextPage) {
-      currentPageTidal++;
-      const uri = `${tidalURL}${nextPage}`;
-      return await getTidalPlaylistIds(uri); // Recursively fetch the next page
-    } else {
-      console.log('\nNo more pages available.');
-    }
+    if (chunks.length > 0) console.log('\nNo more pages available.');
+    else console.log('\nPlaylist is empty.');
   } catch (error) {
     console.error('Error Tidal API:', error.message);
   }
@@ -264,7 +168,13 @@ async function getTidalTracksWithArtists(trackIdsAndMetaItemIds) {
   const uniqueTrackIds = [...new Set(trackIdsAndMetaItemIds.map((item) => item.id))];
   const tracksIds = uniqueTrackIds.join(',');
   const tracksUrl = `${tidalURL}/tracks?countryCode=US&filter[id]=${tracksIds}&include=artists`;
-  let tracksData = await fetchTidalData(tracksUrl);
+  let tracksData;
+  try {
+    tracksData = await tidalFetch(tracksUrl);
+  } catch (error) {
+    console.error('Error fetching Tidal tracks:', error.message);
+    return;
+  }
 
   if (!tracksData) return;
 
@@ -340,16 +250,10 @@ async function removeTracksFromTidalPlaylist(trackIds, label = 'track') {
     }
 
     const url = `${tidalURL}/playlists/${tidalPlaylistId}/relationships/items`;
-    const response = await fetch(url, {
-      method: 'DELETE',
-      headers: {
-        ...tidalHeaders,
-        'Content-Type': 'application/vnd.api+json',
-      },
-      body: JSON.stringify({ data: itemsToDelete }),
-    });
 
-    if (response.ok) {
+    try {
+      // tidalFetch handles auth refresh, rate limiting and retries
+      await tidalFetch(url, { method: 'DELETE', body: { data: itemsToDelete } });
       console.log(
         `\nBatch ${batchIndex + 1}/${batches.length}: removed ${itemsToDelete.length} ${label}(s).`
       );
@@ -361,16 +265,8 @@ async function removeTracksFromTidalPlaylist(trackIds, label = 'track') {
           console.log(`Track ID: ${item.id}`);
         }
       });
-    } else {
-      const errText = await response.text();
-      console.error(
-        `\nBatch ${batchIndex + 1} failed (status ${response.status}): ${errText}`
-      );
-    }
-
-    if (batchIndex < batches.length - 1) {
-      // Example: wait 1 second before the next batch
-      await sleep(1000);
+    } catch (error) {
+      console.error(`\nBatch ${batchIndex + 1} failed: ${error.message}`);
     }
   }
 }
@@ -385,7 +281,7 @@ async function removeTracksFromTidalPlaylist(trackIds, label = 'track') {
 
   // TIDAL
   console.log(`\nFetching Tidal playlist IDs...\n`);
-  await getTidalPlaylistIds(tidalPlaylistUrl);
+  await getTidalPlaylistIds();
 
   // Fetch listened songs from the database for comparison
   let allListenedTracksFromDB = await executeSQL(db, `SELECT name, artist FROM tracks`);

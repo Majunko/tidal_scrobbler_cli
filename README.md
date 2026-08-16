@@ -59,10 +59,12 @@ of scraping the HTML (which is blocked by Cloudflare). To use it you need a Beat
    refreshes itself afterwards, so no other secret files are needed.
 3. Run `npm run beatport`.
 
-The script reads the URL(s) defined in `src/beatport.js`. By default it uses the top-100 list of
-`Techno (Raw / Deep / Hypnotic)` (genre `92`). Add or replace URLs to scrape other genres. The
-resulting tracks are saved to `beatport_scraped.txt` and checked against your listening database,
-writing the ones you haven't listened to yet to `beatport_pending.txt`.
+The URLs to scrape are defined in `beatport_urls.txt`, one top-100 URL per line (blank lines and
+lines starting with `#` are ignored). By default it contains the top-100 list of
+`Techno (Raw / Deep / Hypnotic)` (genre `92`); add or replace URLs to scrape other genres. If the
+file is missing or empty, the default genre `92` URL is used. The resulting tracks are saved to
+`beatport_scraped.txt` and checked against your listening database, writing the ones you haven't
+listened to yet to `beatport_pending.txt`.
 
 ## Migrate Beatport tracks to a Tidal playlist (optional)
 
@@ -71,7 +73,8 @@ find the matching track. If exactly one track matches (same title and same artis
 Tidal playlist defined by `TIDAL_PLAYLIST_ID`. Tracks that could not be found are written to
 `tidal_not_found.txt`; ambiguous matches (multiple candidates, or a same-title track by a different
 artist) are written to `tidal_needs_review.txt` with their Tidal track IDs so you can decide manually.
-Imported tracks are removed from `beatport_pending.txt`. While it runs, the script shows a live
+After a successful run, `beatport_pending.txt` and `beatport_scraped.txt` are deleted (the
+classification remains in the `tidal_*.txt` files). While it runs, the script shows a live
 progress counter (`Processing N/M tracks...`) so you know how many tracks have been processed.
 
 To preview the results without touching the playlist or the pending file, run:

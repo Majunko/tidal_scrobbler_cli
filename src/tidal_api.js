@@ -1,6 +1,6 @@
 import { sleep, updateEnvVariable, printSameLine, chunkArray } from './utils.js';
 
-export const API_BASE_URL = 'https://openapi.tidal.com/v2';
+const API_BASE_URL = 'https://openapi.tidal.com/v2';
 
 const clientId = process.env.TIDAL_CLIENT_ID;
 const clientSecret = process.env.TIDAL_CLIENT_SECRET;
@@ -75,7 +75,7 @@ async function doRefresh() {
 }
 
 // Deduplicates concurrent refresh calls.
-export async function refreshTidalAccessToken() {
+async function refreshTidalAccessToken() {
   if (!refreshPromise) {
     refreshPromise = doRefresh().finally(() => {
       refreshPromise = null;
@@ -163,21 +163,30 @@ export async function searchTracks(query) {
 }
 
 /**
- * Returns the set of track ids currently in a playlist.
+ * Returns all items of a playlist (id + meta.itemId) in playlist order,
+ * following the pagination links.
  */
-export async function getPlaylistTrackIds(playlistId) {
-  const ids = new Set();
+export async function getPlaylistItems(playlistId) {
+  const items = [];
   let nextPath = `/playlists/${playlistId}/relationships/items?countryCode=US&locale=en-US`;
   let page = 0;
   while (nextPath && page < 50) {
     const data = await tidalFetch(nextPath);
     for (const item of data?.data || []) {
-      if (item.id) ids.add(String(item.id));
+      items.push({ id: item.id, meta: item.meta || {} });
     }
     nextPath = data?.links?.next || null;
     page++;
   }
-  return ids;
+  return items;
+}
+
+/**
+ * Returns the set of track ids currently in a playlist.
+ */
+export async function getPlaylistTrackIds(playlistId) {
+  const items = await getPlaylistItems(playlistId);
+  return new Set(items.map((i) => String(i.id)));
 }
 
 /**
