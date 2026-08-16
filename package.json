@@ -9,10 +9,9 @@
   "scripts": {
     "start": "node --env-file=.env src/index.js",
     "beatport": "node --env-file=.env src/beatport.js",
-    "beatport-check": "node --env-file=.env src/beatport_check.js",
     "tidal-migrate": "node --env-file=.env src/tidal_migrate.js",
     "tidal-migrate:dry": "node --env-file=.env src/tidal_migrate.js --dry-run",
-    "oauth": "node --env-file=.env src/tidal_oauth.js"
+    "tidal-oauth": "node --env-file=.env src/tidal_oauth.js"
   },
   "dependencies": {
     "axios": "^1.19.0",

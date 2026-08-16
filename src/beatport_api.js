@@ -41,15 +41,15 @@ function normalizeApiTracks(payload) {
     return tracks;
 }
 
-async function requestTopTracks(genreId, count) {
+// Paginates a catalog list endpoint and returns all raw items.
+async function requestAll(url, params = {}, limit) {
     const token = await obtainToken();
-    const perPage = 100;
     const results = [];
     let page = 1;
 
     while (true) {
-        const response = await axios.get(`${API_BASE_URL}/catalog/genres/${genreId}/top/${count}/`, {
-            params: { page, per_page: perPage },
+        const response = await axios.get(url, {
+            params: { ...params, page, per_page: 100 },
             headers: {
                 Authorization: `Bearer ${token.access_token}`,
                 Accept: 'application/json',
@@ -70,86 +70,34 @@ async function requestTopTracks(genreId, count) {
         results.push(...items);
 
         const total = data?.count ?? results.length;
-        if (results.length >= total || !data?.next) break;
+        if ((limit && results.length >= limit) || results.length >= total || !data?.next) break;
 
         page += 1;
         if (page > 10) break; // safety cap
     }
 
-    return normalizeApiTracks(results);
+    return results;
 }
 
-async function requestNewestTracks(genreId, subGenreIds, count) {
-    const token = await obtainToken();
-    const perPage = Math.min(count, 100);
-    const results = [];
-    let page = 1;
-
-    const baseParams = {
-        order_by: '-publish_date',
-    };
-    if (genreId) baseParams.genre = genreId;
-    if (subGenreIds && subGenreIds.length) baseParams.sub_genre_id = subGenreIds.join(',');
-
-    while (true) {
-        const response = await axios.get(`${API_BASE_URL}/catalog/tracks/`, {
-            params: { ...baseParams, page, per_page: perPage },
-            headers: {
-                Authorization: `Bearer ${token.access_token}`,
-                Accept: 'application/json',
-                'User-Agent': USER_AGENT,
-            },
-            validateStatus: () => true,
-        });
-
-        if (response.status === 401) {
-            throw Object.assign(new Error('Token rejected'), { status: 401 });
-        }
-        if (response.status >= 400) {
-            throw new Error(`Beatport API returned HTTP ${response.status}: ${JSON.stringify(response.data)}`);
-        }
-
-        const data = response.data;
-        const items = Array.isArray(data) ? data : (data.results || []);
-        results.push(...items);
-
-        const total = data?.count ?? results.length;
-        if (results.length >= count || results.length >= total || !data?.next) break;
-
-        page += 1;
-        if (page > 10) break; // safety cap
-    }
-
+async function requestTopTracks(genreId, count) {
+    const capped = Math.min(count, 100);
+    const results = await requestAll(`${API_BASE_URL}/catalog/genres/${genreId}/top/${capped}/`);
     return normalizeApiTracks(results.slice(0, count));
 }
 
-export async function getAccessToken() {
-    const token = await obtainToken();
-    return token.access_token;
-}
-
-export async function fetchNewestTracks(genreId, subGenreIds = [], count = 150) {
+async function retryOnAuth(fn) {
     try {
-        return await requestNewestTracks(genreId, subGenreIds, count);
+        return await fn();
     } catch (err) {
-    if (err.status === 401) {
-        console.warn('⚠️ Beatport token rejected. Re-authenticating once...');
-        clearCachedToken();
-        return await requestNewestTracks(genreId, subGenreIds, count);
-    }
+        if (err.status === 401) {
+            console.warn('⚠️ Beatport token rejected. Re-authenticating once...');
+            clearCachedToken();
+            return await fn();
+        }
         throw err;
     }
 }
 
 export async function fetchTopTracks(genreId, count = 100) {
-    try {
-        return await requestTopTracks(genreId, count);
-    } catch (err) {
-    if (err.status === 401) {
-        console.warn('⚠️ Beatport token rejected. Re-authenticating once...');
-        clearCachedToken();
-        return await requestTopTracks(genreId, count);
-    }
-        throw err;
-    }
+    return retryOnAuth(() => requestTopTracks(genreId, count));
 }

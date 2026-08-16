@@ -1,40 +1,16 @@
 import fs from 'fs';
-import { fetchNewestTracks } from './beatport_api.js';
+import { fetchTopTracks } from './beatport_api.js';
 import { connectDB, executeSQL, existsAllTables } from './sql.js';
 import { compareSongsAlreadyListened } from './track_matcher.js';
 
 const textFileName = 'beatport_scraped.txt';
 const notFoundFileName = 'beatport_pending.txt';
 
-const GENRE_ID_FROM_URL = /\/genre\/[^/]+\/(\d+)\/(?:releases|top-100|hype-100)/i;
+const GENRE_ID_FROM_URL = /\/genre\/[^/]+\/(\d+)\/top-100/i;
 
 function extractGenreId(url) {
     const match = url.match(GENRE_ID_FROM_URL);
     return match ? Number(match[1]) : null;
-}
-
-function extractQueryParam(url, key) {
-    try {
-        return new URL(url).searchParams.get(key);
-    } catch {
-        return null;
-    }
-}
-
-function getSubGenreIdsFromEnv() {
-    const raw = process.env.BEATPORT_SUB_GENRE_IDS;
-    if (!raw) return [];
-    return raw
-        .split(',')
-        .map((value) => value.trim())
-        .filter(Boolean)
-        .map(Number)
-        .filter((value) => Number.isFinite(value));
-}
-
-function extractPerPage(url) {
-    const value = Number(extractQueryParam(url, 'per_page'));
-    return Number.isFinite(value) && value > 0 ? value : 150;
 }
 
 const parseBeatportLine = (line) => {
@@ -54,28 +30,25 @@ const parseBeatportLine = (line) => {
 const trackKey = (track) => `${track.name}|||${track.artist}`;
 
 /**
- * Fetches the newest tracks from the Beatport releases tab via the official API
- * and RETURNS an array of track objects
+ * Fetches the top 100 tracks of a Beatport genre via the official API and
+ * RETURNS an array of track objects
  */
-export async function scrapeNewReleases(releasesUrl) {
-    const genreId = extractGenreId(releasesUrl);
+export async function scrapeGenre(genreUrl) {
+    const genreId = extractGenreId(genreUrl);
 
     if (!genreId) {
-        console.error(`❌ Could not determine genre id from URL: ${releasesUrl}`);
+        console.error(`❌ Could not determine genre id from URL: ${genreUrl}`);
         return [];
     }
 
-    const subGenreIds = getSubGenreIdsFromEnv();
-    const count = extractPerPage(releasesUrl);
-
     try {
-        const tracks = await fetchNewestTracks(genreId, subGenreIds, count);
+        const tracks = await fetchTopTracks(genreId, 100);
         if (tracks.length > 0) {
-            console.log(`✅ Fetched ${tracks.length} tracks from the Beatport releases API.`);
+            console.log(`✅ Fetched ${tracks.length} tracks from the Beatport API (top-100).`);
             return tracks;
         }
     } catch (error) {
-        console.error(`❌ Error fetching Beatport releases: ${error.message}`);
+        console.error(`❌ Error fetching Beatport: ${error.message}`);
         return [];
     }
 
@@ -85,17 +58,24 @@ export async function scrapeNewReleases(releasesUrl) {
 
 async function runScraper() {
     const urls = [
-        'https://www.beatport.com/genre/techno-raw-deep-hypnotic/92/releases',
+        'https://www.beatport.com/genre/techno-raw-deep-hypnotic/92/top-100',
     ];
 
-    // 1. Save all scraped data in a variable
+    // 1. Save all scraped data in a variable, deduping across the lists
     let allTracks = [];
+    const seen = new Set();
     for (const url of urls) {
-        const tracks = await scrapeNewReleases(url);
-        allTracks = allTracks.concat(tracks);
+        const tracks = await scrapeGenre(url);
+        for (const t of tracks) {
+            const key = trackKey(t);
+            if (!seen.has(key)) {
+                seen.add(key);
+                allTracks.push(t);
+            }
+        }
     }
 
-    // Keep the order returned by the API (newest releases first).
+    // Keep the order returned by the API (top-100 first).
     const fileContent = allTracks
         .map(t => `${t.name} - ${Array.isArray(t.artist) ? t.artist.join(', ') : t.artist}`)
         .join('\n');

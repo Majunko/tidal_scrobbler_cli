@@ -3,6 +3,7 @@ import Fuse from 'fuse.js';
 import { pathToFileURL } from 'url';
 import { searchTracks, addTracksToPlaylist, getPlaylistTrackIds, getRequestCount } from './tidal_api.js';
 import { normalize, normalizeArtistSet, isArtistSetMatch, removeDiacritics } from './track_matcher.js';
+import { printSameLine } from './utils.js';
 
 const SOURCE_FILE = 'beatport_pending.txt';
 const IMPORTED_FILE = 'tidal_imported.txt';
@@ -213,10 +214,14 @@ async function migrate() {
   const t0 = Date.now();
   const playlistTrackIds = dryRun ? new Set() : await getPlaylistTrackIds(playlistId);
 
+  let processedTracks = 0;
   const processed = await mapLimit(lines, CONCURRENCY, async ({ name, artist, line }) => {
     const { scored } = await findCandidates(name, artist);
+    processedTracks++;
+    printSameLine(`Processing ${processedTracks}/${lines.length} tracks... (${((Date.now() - t0) / 1000).toFixed(0)}s)`);
     return { line, ...classify(name, scored), scored };
   });
+  console.log('');
 
   const imported = [];
   const notFound = [];

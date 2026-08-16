@@ -38,17 +38,16 @@ To use this project, you need to:
    npm install
 
    # Authorize your account to the application to access your playlists
-   npm run oauth
+   npm run tidal-oauth
 
    # Start the process
    npm start
    ```
 
-## Beatport New Releases (optional)
+## Beatport Top 100 (optional)
 
-The newest tracks from the Beatport releases tab are fetched from Beatport's official API v4
-(`api.beatport.com`) instead of scraping the HTML (which is blocked by Cloudflare). To use it you
-need a Beatport account:
+The genre's top 100 tracks are fetched from Beatport's official API v4 (`api.beatport.com`) instead
+of scraping the HTML (which is blocked by Cloudflare). To use it you need a Beatport account:
 
 1. Set your credentials in the `.env` file:
    ```
@@ -60,13 +59,10 @@ need a Beatport account:
    refreshes itself afterwards, so no other secret files are needed.
 3. Run `npm run beatport`.
 
-The script reads the URL(s) defined in `src/beatport.js`. By default it uses the releases tab of
-`Techno (Raw / Deep / Hypnotic)` (genre `92`) ordered by publish date (newest first). The sub-genre
-filter is defined in the `.env` file via `BEATPORT_SUB_GENRE_IDS` (a comma-separated list of sub-genre
-ids, e.g. `224,225` for `Deep / Hypnotic` and `Raw`); leave it empty to include every sub-genre of
-the genre. The `per_page` query parameter in the URL is picked up automatically. The resulting tracks
-are saved to `beatport_scraped.txt` and checked against your listening database, writing the ones you
-haven't listened to yet to `beatport_pending.txt`.
+The script reads the URL(s) defined in `src/beatport.js`. By default it uses the top-100 list of
+`Techno (Raw / Deep / Hypnotic)` (genre `92`). Add or replace URLs to scrape other genres. The
+resulting tracks are saved to `beatport_scraped.txt` and checked against your listening database,
+writing the ones you haven't listened to yet to `beatport_pending.txt`.
 
 ## Migrate Beatport tracks to a Tidal playlist (optional)
 
@@ -75,7 +71,8 @@ find the matching track. If exactly one track matches (same title and same artis
 Tidal playlist defined by `TIDAL_PLAYLIST_ID`. Tracks that could not be found are written to
 `tidal_not_found.txt`; ambiguous matches (multiple candidates, or a same-title track by a different
 artist) are written to `tidal_needs_review.txt` with their Tidal track IDs so you can decide manually.
-Imported tracks are removed from `beatport_pending.txt`.
+Imported tracks are removed from `beatport_pending.txt`. While it runs, the script shows a live
+progress counter (`Processing N/M tracks...`) so you know how many tracks have been processed.
 
 To preview the results without touching the playlist or the pending file, run:
 
