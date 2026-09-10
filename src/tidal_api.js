@@ -137,8 +137,8 @@ export async function tidalFetch(path, { method = 'GET', body = null, retries = 
  * Searches Tidal for tracks matching a query and returns normalized candidates:
  * [{ id, title, version, fullTitle, artists }]
  */
-export async function searchTracks(query) {
-  const path = `/searchResults?filter[query]=${encodeURIComponent(query)}&countryCode=US&locale=en-US&include=tracks.artists`;
+export async function searchTracks(query, { limit = 25 } = {}) {
+  const path = `/searchResults?filter[query]=${encodeURIComponent(query)}&countryCode=US&locale=en-US&include=tracks.artists&page[limit]=${limit}`;
   const data = await tidalFetch(path);
 
   const artistMap = new Map();
@@ -160,6 +160,34 @@ export async function searchTracks(query) {
     tracks.push({ id: entry.id, title, version, fullTitle, artists });
   }
   return tracks;
+}
+
+/**
+ * Fetches a single track with its artist details.
+ * Useful when search results have empty artist data.
+ */
+export async function getTrackDetails(trackId) {
+  const path = `/tracks/${trackId}?include=artists&countryCode=US&locale=en-US`;
+  const data = await tidalFetch(path);
+
+  const track = data?.data;
+  if (!track) return null;
+
+  const artistMap = new Map();
+  for (const entry of data?.included || []) {
+    if (entry.type === 'artists') {
+      artistMap.set(String(entry.id), entry.attributes?.name || '');
+    }
+  }
+
+  const attrs = track.attributes || {};
+  const artistIds = track.relationships?.artists?.data?.map((a) => a.id) || [];
+  const artists = artistIds.map((id) => artistMap.get(String(id))).filter(Boolean);
+  const title = attrs.title || '';
+  const version = attrs.version || '';
+  const fullTitle = version ? `${title} (${version})` : title;
+
+  return { id: track.id, title, version, fullTitle, artists };
 }
 
 /**

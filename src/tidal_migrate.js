@@ -1,7 +1,7 @@
 import fs from 'fs';
 import Fuse from 'fuse.js';
 import { pathToFileURL } from 'url';
-import { searchTracks, addTracksToPlaylist, getPlaylistTrackIds, getRequestCount } from './tidal_api.js';
+import { searchTracks, getTrackDetails, addTracksToPlaylist, getPlaylistTrackIds, getRequestCount } from './tidal_api.js';
 import { normalizeArtistSet, isArtistSetMatch, normalizeTitleKey } from './track_matcher.js';
 import { printSameLine, parseBeatportLine } from './utils.js';
 
@@ -110,6 +110,7 @@ async function findCandidates(name, artist) {
   };
 
   const queries = [`${name} ${artist}`, artist, name];
+  let foundExact = false;
 
   for (const query of queries) {
     try {
@@ -123,9 +124,37 @@ async function findCandidates(name, artist) {
     const distinct = dedupeMatches(matches);
 
     // A single distinct exact title+artist match is decisive: skip the remaining queries.
-    if (distinct.length === 1 && isExactTitle(name, distinct[0])) break;
+    if (distinct.length === 1 && isExactTitle(name, distinct[0])) {
+      foundExact = true;
+      break;
+    }
     // Multiple distinct matches need manual review either way: stop early.
     if (distinct.length > 1) break;
+  }
+
+  // Artist-first fallback: if no exact match found, search by artist name with
+  // a higher limit and filter by title. Catches tracks that rank low in combined searches.
+  if (!foundExact) {
+    try {
+      const artistResults = await searchTracks(artist, { limit: 50 });
+      addResults(artistResults);
+    } catch {
+      failedSearches++;
+    }
+  }
+
+  // Fill missing artists: fetch individual track details for candidates with
+  // empty artist data. The search API doesn't always return artist relationships.
+  const candidates = [...seen.values()];
+  const missingArtists = candidates.filter((c) => c.artists.length === 0);
+  if (missingArtists.length > 0) {
+    const details = await Promise.all(missingArtists.map((c) => getTrackDetails(c.id).catch(() => null)));
+    for (const detail of details) {
+      if (detail && detail.artists.length > 0) {
+        const existing = seen.get(detail.id);
+        if (existing) seen.set(detail.id, { ...existing, artists: detail.artists });
+      }
+    }
   }
 
   const scored = scoreCandidates([...seen.values()], name, artist);
