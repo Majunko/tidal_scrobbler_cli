@@ -93,15 +93,26 @@ export const isArtistSetMatch = (aSet, bSet) => {
   return isSubset(aSet, bSet) || isSubset(bSet, aSet);
 }
 
+// Version markers treated as interchangeable when comparing titles (mirrors the
+// strip list in src/sql.js titleNormalize, so listened-vs-scrabbled variants like
+// "Gobble (2026 Re-Edit)" vs "Gobble 2026 Re-Edit" collapse to the same key).
+const VERSION_MARKERS_TO_STRIP = /\s*[\[\(]\s*(radio edit|single edit|album version|radio mix)\s*[\]\)]\s*/gi;
+
 // Precompute the title variants used for matching (mirrors the original
-// isFuzzyTitleMatch checks): raw, bracket/parenthesis normalized, and
-// diacritics removed.
+// isFuzzyTitleMatch checks): raw, bracket/parenthesis normalized, diacritics
+// removed, and version-markers/parentheses stripped (aligned with sql.js).
 const titleVariants = (title) => {
   const t = String(title ?? '');
   return {
     raw: t,
     bracketNorm: normalize(t),
     noDiac: removeDiacritics(t),
+    markerNorm: removeDiacritics(t)
+      .replace(VERSION_MARKERS_TO_STRIP, ' ')
+      .replace(/[\[\](){}]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase(),
   };
 }
 
@@ -136,6 +147,7 @@ export const compareSongsAlreadyListened = (tidalSongs, dbSongs) => {
   const rawIndex = buildIndex((e) => e.raw);
   const bracketIndex = buildIndex((e) => e.bracketNorm);
   const noDiacIndex = buildIndex((e) => e.noDiac);
+  const markerIndex = buildIndex((e) => e.markerNorm);
 
   // Inverted artist index: normalized artist name -> DB entries. A track can
   // only match if it shares at least one artist with a DB entry, so this lets
@@ -186,10 +198,11 @@ export const compareSongsAlreadyListened = (tidalSongs, dbSongs) => {
     const artistSet = entry.artists;
     if (artistSet.size === 0) return false;
 
-    // Exact matches (raw, bracket-normalized, diacritics-removed)
+    // Exact matches (raw, bracket-normalized, diacritics-removed, marker-stripped)
     if (matchesIn(rawIndex.get(entry.raw), artistSet)) return true;
     if (matchesIn(bracketIndex.get(entry.bracketNorm), artistSet)) return true;
     if (matchesIn(noDiacIndex.get(entry.noDiac), artistSet)) return true;
+    if (matchesIn(markerIndex.get(entry.markerNorm), artistSet)) return true;
 
     // Fuzzy fallback for reasonably short titles
     if (entry.raw.length >= 50) return false;
