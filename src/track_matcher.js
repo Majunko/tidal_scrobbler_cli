@@ -1,10 +1,37 @@
 import Fuse from 'fuse.js';
 
 /**
- * Remove diacritics (accents, eg: Fēlēs) from a string
- *  */
-export const removeDiacritics = (str) => {
-  return str.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+ * Strip invisible/zero-width control characters that sneak into artist/track
+ * names (Beatport vs Tidal metadata differ). Covers zero-width spaces/joiners,
+ * word joiners, soft hyphen, BOM and variation selectors.
+ */
+export const stripInvisible = (str = '') =>
+  String(str)
+    .replace(/[\u200b\u200c\u200d\u00ad\ufeff\u2060\u2061\u2062\u2063\u2064]/g, '')
+    .replace(/[\ufe00-\ufe0f]/g, '');
+
+// Letters with strokes/overlays that have NO canonical decomposition in Unicode
+// (so NFD can't strip them): ø/Ø, ł/Ł, đ/Đ, ħ/Ħ, dotless i. NFKC leaves them
+// untouched, so map them to their base letters explicitly.
+const DIACRITIC_ALIASES = {
+  'ø': 'o', 'Ø': 'O',
+  'ł': 'l', 'Ł': 'L',
+  'đ': 'd', 'Đ': 'D',
+  'ħ': 'h', 'Ħ': 'H',
+  'ı': 'i',
+};
+
+/**
+ * Remove diacritics (accents, eg: Fēlēs) from a string, plus invisible
+ * characters and NFKC normalization (full-width -> ASCII, etc).
+ */
+export const removeDiacritics = (str = '') => {
+  const normalized = stripInvisible(str)
+    .normalize('NFKC')
+    .replace(/[øØłŁđĐħĦı]/g, (ch) => DIACRITIC_ALIASES[ch])
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+  return normalized;
 }
 
 /**

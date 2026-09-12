@@ -2,7 +2,7 @@ import fs from 'fs';
 import Fuse from 'fuse.js';
 import { pathToFileURL } from 'url';
 import { searchTracks, getTrackDetails, addTracksToPlaylist, getPlaylistTrackIds, getRequestCount } from './tidal_api.js';
-import { normalizeArtistSet, isArtistSetMatch, normalizeTitleKey } from './track_matcher.js';
+import { normalizeArtistSet, isArtistSetMatch, normalizeTitleKey, removeDiacritics, stripInvisible } from './track_matcher.js';
 import { printSameLine, parseBeatportLine } from './utils.js';
 
 const SOURCE_FILE = 'beatport_pending.txt';
@@ -22,10 +22,17 @@ const normalizeTitle = normalizeTitleKey;
 
 const MIX_KEYWORDS = /(mix|edit|remix|version|dub|reprise|rework|acapella|instrumental|radio|extended|club|original|vocal|bonus|intro|outro|clean|dirty)/i;
 
+// Clean a search term for the Tidal API: strip invisible chars (zero-width
+// spaces etc.) so "Uväll" doesn't turn into a query with hidden bytes.
+const cleanQuery = (text) => stripInvisible(String(text ?? '')).replace(/\s+/g, ' ').trim();
+
+// Full normalization (accents/full-width stripped) for the fallback query.
+const diacriticless = (text) => removeDiacritics(String(text ?? '')).replace(/\s+/g, ' ').trim();
+
 // Removes mix/remix/version markers ("(Original Mix)", " - Extended Mix", ...)
 // so a Beatport title can be matched against a differently-named Tidal version.
 const stripMixMarkers = (title) => {
-  let t = String(title);
+  let t = stripInvisible(String(title));
   t = t.replace(/[\[\(][^\]\)]*[\]\)]/g, (m) => (MIX_KEYWORDS.test(m) ? ' ' : m));
   t = t.replace(/\s*[-–—]\s*[^-–—]+$/g, (m) => (MIX_KEYWORDS.test(m) ? ' ' : m));
   return t.replace(/\s+/g, ' ').trim();
@@ -109,7 +116,11 @@ async function findCandidates(name, artist) {
     }
   };
 
-  const queries = [`${name} ${artist}`, artist, name];
+  // Search terms are cleaned of invisible characters so the API query doesn't
+  // contain hidden bytes (e.g. zero-width spaces from Beatport metadata).
+  const cleanName = cleanQuery(name);
+  const cleanArtist = cleanQuery(artist);
+  const queries = [`${cleanName} ${cleanArtist}`, cleanArtist, cleanName];
   let foundExact = false;
 
   for (const query of queries) {
@@ -136,10 +147,22 @@ async function findCandidates(name, artist) {
   // a higher limit and filter by title. Catches tracks that rank low in combined searches.
   if (!foundExact) {
     try {
-      const artistResults = await searchTracks(artist, { limit: 50 });
+      const artistResults = await searchTracks(cleanArtist, { limit: 50 });
       addResults(artistResults);
     } catch {
       failedSearches++;
+    }
+
+    // Diacritic/full-width fallback: "Uväll" -> "Uvall" variants. Only fired when
+    // the cleaned terms differ from the fully normalized ones (avoids extra requests).
+    const normName = diacriticless(cleanName);
+    const normArtist = diacriticless(cleanArtist);
+    if (normName !== cleanName || normArtist !== cleanArtist) {
+      try {
+        addResults(await cachedSearch(`${normName} ${normArtist}`));
+      } catch {
+        failedSearches++;
+      }
     }
   }
 
