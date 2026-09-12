@@ -21,12 +21,12 @@ const titleNormalize = (value) =>
     .replace(/\s+/g, ' ')
     .trim();
 
-const lastFmDatabaseName = process.env.LASTFM_DATABASE_NAME;
+const scrobbleDatabaseName = process.env.SCROBBLE_DATABASE_NAME;
 
 // Function to connect to the SQLite database
 export const connectDB = async () => {
   try {
-    const db = new DatabaseSync(lastFmDatabaseName);
+    const db = new DatabaseSync(scrobbleDatabaseName);
     return db;
   } catch (err) {
     console.error('Failed to connect to the database:', err.message);
@@ -45,6 +45,41 @@ const createTracksTable = async (db) => {
     name_normalized TEXT
   )`;
   return await executeSQL(db, sql);
+}
+
+const createMetaTable = async (db) => {
+  const sql = `CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)`;
+  return await executeSQL(db, sql);
+}
+
+// Seeds a per-source import cursor for users upgrading from a DB that already
+// contains history (assumed to come from Last.fm), so the first run after the
+// upgrade stays incremental instead of re-fetching the full Last.fm history.
+const migrateMetaTable = async (db) => {
+  await createMetaTable(db);
+  const row = db.prepare(`SELECT COUNT(*) AS c FROM meta`).get();
+  if (row && row.c === 0) {
+    const latest = db.prepare(`SELECT MAX(date) AS max_date FROM tracks`).get();
+    if (latest && latest.max_date) {
+      const epoch = Math.floor(new Date(latest.max_date).getTime() / 1000);
+      db.prepare(`INSERT INTO meta (key, value) VALUES (?, ?)`).run('import_lastfm', String(epoch));
+    }
+  }
+}
+
+// Returns the last imported listened_at (Unix epoch seconds) for a source
+// ('lastfm' | 'listenbrainz'), or null if that source has never been imported.
+export const getImportCursor = async (db, source) => {
+  const stmt = db.prepare(`SELECT value FROM meta WHERE key = ?`);
+  const row = stmt.get(`import_${source}`);
+  return row ? parseInt(row.value, 10) : null;
+}
+
+export const setImportCursor = async (db, source, epochSeconds) => {
+  const stmt = db.prepare(
+    `INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`
+  );
+  stmt.run(`import_${source}`, String(Math.floor(epochSeconds)));
 }
 
 const columnExists = (db, table, column) => {
@@ -107,6 +142,7 @@ export const existsAllTables = async (db) => {
     await createTracksTable(db);
   }
   await migrateTracksTable(db);
+  await migrateMetaTable(db);
 }
 
 // Function to insert a new track into the database

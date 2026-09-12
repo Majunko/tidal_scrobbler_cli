@@ -45,10 +45,15 @@ export const checkEnvVariables = () => {
     'TIDAL_CLIENT_ID',
     'TIDAL_CLIENT_SECRET',
     'TIDAL_PLAYLIST_ID',
-    'LASTFM_USERNAME',
-    'LASTFM_API_KEY',
-    'LASTFM_DATABASE_NAME'
+    'SCROBBLE_DATABASE_NAME'
   ];
+
+  const lastfmConfigured = !!(process.env.LASTFM_USERNAME && process.env.LASTFM_API_KEY);
+  const listenbrainzConfigured = !!process.env.LISTENBRAINZ_USERNAME;
+
+  if (!lastfmConfigured && !listenbrainzConfigured) {
+    requiredEnvVariables.push('LASTFM_USERNAME/LASTFM_API_KEY or LISTENBRAINZ_USERNAME');
+  }
 
   const missingVariables = requiredEnvVariables.filter(variable => !process.env[variable]);
 

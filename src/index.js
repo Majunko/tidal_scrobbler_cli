@@ -4,8 +4,9 @@ import {
   executeSQL,
   insertTrack,
   connectDB,
-  getLatestTrack,
   checkTrackExists,
+  getImportCursor,
+  setImportCursor,
 } from './sql.js';
 import {
   sleep,
@@ -36,27 +37,27 @@ let tidalPlaylistSongs = [];
 const lastFmUserName = process.env.LASTFM_USERNAME;
 const lastFmApiKey = process.env.LASTFM_API_KEY;
 
-async function getLastfmListeningHistory() {
-  const db = await connectDB();
+// --- LISTENBRAINZ ---
+const listenbrainzUserName = process.env.LISTENBRAINZ_USERNAME;
+const listenbrainzApiToken = process.env.LISTENBRAINZ_API_TOKEN;
+
+const listenbrainzHeaders = {
+  'User-Agent': 'ListenBrainzScrobbler/1.0 (https://github.com/Majunko/tidal_scrobbler_cli)',
+};
+if (listenbrainzApiToken) {
+  listenbrainzHeaders['Authorization'] = `Token ${listenbrainzApiToken}`;
+}
+
+async function getLastfmListeningHistory(fromEpoch) {
   let allFetchedTracks = [];
   let page = 1;
-  let shouldContinueFetching = true;
-  let fromTimestamp = 0; // Default to 0 if the database is empty
-
-  // Get the timestamp of the latest track in the database
-  const latestTrack = await getLatestTrack(db);
-  if (latestTrack && latestTrack.date) {
-    fromTimestamp = Math.floor(new Date(latestTrack.date).getTime() / 1000); // Convert ISO date to Unix timestamp (seconds)
-    console.log(`Fetching new tracks since: ${latestTrack.date} (Unix timestamp: ${fromTimestamp})`);
-  } else {
-    console.log('Database is empty. Fetching all history.');
-  }
+  let complete = false;
 
   console.log('Fetching last.fm listening history from API...');
 
-  while (shouldContinueFetching) {
+  while (true) {
     const url = `https://ws.audioscrobbler.com/2.0/?method=user.getrecenttracks&user=${lastFmUserName}&api_key=${lastFmApiKey}&format=json&limit=200&page=${page}${
-      fromTimestamp > 0 ? `&from=${fromTimestamp}` : ''
+      fromEpoch > 0 ? `&from=${fromEpoch}` : ''
     }`;
 
     try {
@@ -75,10 +76,9 @@ async function getLastfmListeningHistory() {
         }
       } else {
         console.error('Unexpected Last.fm response:', data);
-        return [];
+        break;
       }
 
-      // When processing Last.fm tracks:
       const formattedTracks = tracks
         .filter((track) => !(track['@attr'] && track['@attr'].nowplaying === 'true')) // Exclude now playing
         .map((track) => ({
@@ -97,23 +97,108 @@ async function getLastfmListeningHistory() {
       printSameLine(`Fetched page: ${page}/${totalPages}`);
 
       if (tracks.length < 200 || page >= totalPages) {
-        shouldContinueFetching = false;
-        console.log('\nFinished fetching Last.fm history.');
-      } else {
-        page++;
-        await sleep(250); // Last.fm allows 5 requests/second
+        complete = true;
+        break;
       }
+      page++;
+      await sleep(250); // Last.fm allows 5 requests/second
     } catch (error) {
       console.error(`\nError fetching data from ${url}:`, error.message);
-      shouldContinueFetching = false;
+      break;
     }
   }
 
-  // Reverse the fetched tracks to save from oldest to newest
-  const reversedTracks = [...allFetchedTracks].reverse();
+  console.log('\nFinished fetching Last.fm history.');
+  return { tracks: allFetchedTracks, complete };
+}
+
+async function getListenbrainzListeningHistory(fromEpoch) {
+  let allFetchedTracks = [];
+  let complete = false;
+  let maxTs = null;
+  const minTs = fromEpoch > 0 ? fromEpoch : null;
+
+  console.log('Fetching ListenBrainz listening history from API...');
+
+  while (true) {
+    const params = new URLSearchParams();
+    params.set('count', '1000');
+    if (maxTs != null) {
+      params.set('max_ts', String(maxTs));
+    } else if (minTs != null) {
+      params.set('min_ts', String(minTs));
+    }
+    const url = `https://api.listenbrainz.org/1/user/${encodeURIComponent(listenbrainzUserName)}/listens?${params.toString()}`;
+
+    let data = null;
+    let attempts = 0;
+    while (attempts < 3) {
+      attempts++;
+      try {
+        const response = await fetch(url, { headers: listenbrainzHeaders });
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        data = await response.json();
+        break;
+      } catch (error) {
+        console.error(`\nError fetching data from ${url} (attempt ${attempts}/3):`, error.message);
+        if (attempts < 3) {
+          console.log('Retrying in 5 seconds...');
+          await sleep(5000);
+        }
+      }
+    }
+    if (!data) {
+      // Give up after retries: keep the cursor unchanged so the next run retries
+      break;
+    }
+
+    const listens =
+      data && data.payload && Array.isArray(data.payload.listens) ? data.payload.listens : [];
+
+    const formattedTracks = listens
+      .filter((listen) => listen.listened_at && listen.track_metadata)
+      .map((listen) => ({
+        name: listen.track_metadata.track_name || '',
+        artist: listen.track_metadata.artist_name || '',
+        album: listen.track_metadata.release_name || '',
+        date: new Date(listen.listened_at * 1000).toISOString(),
+      }));
+
+    allFetchedTracks.push(...formattedTracks);
+    printSameLine(`Fetched page with ${listens.length} listens (total so far: ${allFetchedTracks.length})`);
+
+    // Pagination: walk backwards with max_ts = oldest listen in this page
+    // minus 1 (max_ts is strictly-less-than, the -1 keeps any same-second
+    // listens). A full page (payload.count == requested count) means there
+    // may be more history; the last page is always partial or empty.
+    const count = data && data.payload ? data.payload.count : listens.length;
+    if (count >= 1000 && listens.length > 0) {
+      const nextMax = listens[listens.length - 1].listened_at - 1;
+      if (nextMax !== maxTs) {
+        maxTs = nextMax;
+        await sleep(2000); // Be conservative against ListenBrainz throttling
+      } else {
+        complete = true;
+        break;
+      }
+    } else {
+      complete = true;
+      break;
+    }
+  }
+
+  console.log('\nFinished fetching ListenBrainz history.');
+  return { tracks: allFetchedTracks, complete };
+}
+
+async function saveHistoryToDatabase(db, tracks, label) {
+  // Save from oldest to newest
+  const reversedTracks = [...tracks].reverse();
   let insertedCount = 0;
 
-  console.log('Saving Last.fm history to database (oldest to newest)...');
+  console.log(`Saving ${label} history to database (oldest to newest)...`);
   db.exec('BEGIN');
   try {
     for (const track of reversedTracks) {
@@ -130,14 +215,7 @@ async function getLastfmListeningHistory() {
     throw err;
   }
 
-  db.close((err) => {
-    if (err) {
-      console.error('Failed to close the database connection:', err.message);
-    }
-  });
-
-  console.log(`Total new Last.fm tracks added to the database: ${insertedCount}`);
-  return [];
+  console.log(`Total new ${label} tracks added to the database: ${insertedCount}`);
 }
 
 // Fetch all playlist items (pagination handled by getPlaylistItems) and build
@@ -276,8 +354,42 @@ async function removeTracksFromTidalPlaylist(trackIds, label = 'track') {
   const db = await connectDB();
   await existsAllTables(db);
 
-  // Fetch and save Last.fm history, oldest to newest
-  await getLastfmListeningHistory();
+  // Source selection: ListenBrainz takes priority when configured
+  const useListenbrainz = !!listenbrainzUserName;
+  const sourceKey = useListenbrainz ? 'listenbrainz' : 'lastfm';
+  const sourceLabel = useListenbrainz ? 'ListenBrainz' : 'Last.fm';
+
+  if (useListenbrainz) {
+    console.log('ListenBrainz is configured. Last.fm is ignored (ListenBrainz takes priority).\n');
+  }
+
+  const cursor = await getImportCursor(db, sourceKey);
+  const fromEpoch = cursor != null ? cursor : 0;
+
+  if (fromEpoch > 0) {
+    console.log(`Fetching new tracks since: ${new Date(fromEpoch * 1000).toISOString()} (Unix timestamp: ${fromEpoch})`);
+  } else {
+    console.log(`No import cursor yet for ${sourceLabel}. Fetching full history.`);
+  }
+
+  const result = useListenbrainz
+    ? await getListenbrainzListeningHistory(fromEpoch)
+    : await getLastfmListeningHistory(fromEpoch);
+
+  await saveHistoryToDatabase(db, result.tracks, sourceLabel);
+
+  // Only advance the cursor when the fetch completed successfully
+  if (result.complete) {
+    if (result.tracks.length > 0) {
+      const maxEpoch = Math.max(...result.tracks.map((t) => Math.floor(new Date(t.date).getTime() / 1000)));
+      await setImportCursor(db, sourceKey, maxEpoch);
+    } else {
+      // No history at all: set cursor to now so we don't re-backfill every run
+      await setImportCursor(db, sourceKey, Math.floor(Date.now() / 1000));
+    }
+  } else {
+    console.log('Fetch did not complete; import cursor left unchanged.');
+  }
 
   // TIDAL
   console.log(`\nFetching Tidal playlist IDs...\n`);

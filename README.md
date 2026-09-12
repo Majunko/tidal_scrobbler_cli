@@ -1,6 +1,7 @@
 # Tidal Track Listener Checker
 
-This project checks if a track has already been listened to on Tidal by leveraging the Last.fm API and the Tidal API. It is built using Node.js.
+This project checks if a track has already been listened to on Tidal by leveraging your scrobble
+history (Last.fm or ListenBrainz) and the Tidal API. It is built using Node.js.
 
 ## Prerequisites
 
@@ -9,15 +10,41 @@ To use this project, you need to:
 1. **Create a Playlist (public or private) on Tidal**:
    - Copy the **Playlist ID** and paste it into the `.env` file.
 
-2. **Create a Last.fm Application**:
-   - Create a new application on Last.fm -> https://www.last.fm/api/account/create
-   - Copy the **API Key** and paste it into the `.env` file.
+2. **Set up a scrobble source — either Last.fm or ListenBrainz** (see
+   [Listening history sources](#listening-history-sources-lastfm-or-listenbrainz) below).
 
 3. **Create a Tidal Application**:
    - Create a new application on Tidal -> https://developer.tidal.com/dashboard
    - Write the Redirect URL to: http://localhost:3000/callback
    - Select the next scopes: `playlists.read`, `playlists.write`
    - Copy the **Client ID** and **Client Secret** and paste them into the `.env` file.
+
+## Listening history sources (Last.fm or ListenBrainz)
+
+The script needs the history of tracks you already listened to. You can use **Last.fm**,
+**ListenBrainz**, or both (leave the other one empty):
+
+- **Last.fm**: create an application at https://www.last.fm/api/account/create, then set in `.env`:
+  ```
+  LASTFM_USERNAME='your-lastfm-username'
+  LASTFM_API_KEY='your-lastfm-api-key'
+  ```
+- **ListenBrainz**: set in `.env` (the token is optional but recommended for higher rate limits;
+  find it at https://listenbrainz.org/settings/):
+  ```
+  LISTENBRAINZ_USERNAME='your-listenbrainz-username'
+  LISTENBRAINZ_API_TOKEN='your-listenbrainz-token'
+  ```
+
+**Priority**: if `LISTENBRAINZ_USERNAME` is set, ListenBrainz is used and Last.fm is ignored. If
+not, Last.fm is used. If no source is configured, the script exits with an error.
+
+**Database**: both sources share the same SQLite database (`SCROBBLE_DATABASE_NAME`, e.g.
+`scrobbles.db`). It stores *unique* listened tracks (deduplicated by normalized artist/title), so
+how many times you listened to a track does not matter. The first run of a source does a full
+backfill of its history; later runs are incremental. In very old setups the database was called
+`lastfm.db` and the variable was `LASTFM_DATABASE_NAME` — rename the file and variable to
+`scrobbles.db` / `SCROBBLE_DATABASE_NAME`.
 
 ## Setup
 
