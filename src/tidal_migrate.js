@@ -38,7 +38,40 @@ const stripMixMarkers = (title) => {
   return t.replace(/\s+/g, ' ').trim();
 };
 
-const titleMatch = (beatportName, tidalTrack) => {
+const escapeRegExp = (text) => String(text).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+// The version text to strip from a Beatport title: the candidate's explicit
+// `version` attribute, or the parenthesized suffix of the Tidal title when the
+// attribute is missing (e.g. "Foo (Bar Remix)" -> "Bar Remix").
+const candidateVersionText = (track) => {
+  if (track.version) return track.version;
+  const m = normalizeTitle(track.title).match(/\[[^\]]*\]$/);
+  if (!m) return '';
+  const inner = m[0].replace(/[\[\]]/g, '');
+  return MIX_KEYWORDS.test(inner) ? inner : '';
+};
+
+// Removes the candidate's known version text from the end of a normalized title
+// key, tolerating " - ", a space, or square brackets as separators. This bridges
+// Beatport titles that append the version bare ("Säurebad Deat Marotta Remix")
+// with Tidal's parenthesized/attribute form ("Säurebad (Deat Marotta Remix)").
+// Returns null when the given version can't be stripped from the title.
+const stripTrailingVersion = (titleKey, versionText) => {
+  if (!versionText) return null;
+  const v = normalizeTitle(versionText);
+  if (!v || titleKey === v) return null;
+  const matches = titleKey.match(
+    new RegExp(`(?:\\s*[-–—:\\s]+)?\\[?\\s*${escapeRegExp(v)}\\s*\\]?$`)
+  );
+  if (!matches) return null;
+  const remainder = titleKey.slice(0, matches.index).trim();
+  return remainder && remainder !== titleKey ? remainder : null;
+};
+
+// Strict title comparison using every signal we trust: raw normalized keys,
+// mix-marker-stripped keys, and the candidate's structured version/title split
+// (which handles bare trailing versions on the Beatport side).
+const sameStrictTitle = (beatportName, tidalTrack) => {
   const a = normalizeTitle(beatportName);
   const b = normalizeTitle(tidalTrack.fullTitle);
   if (!a || !b) return false;
@@ -49,22 +82,37 @@ const titleMatch = (beatportName, tidalTrack) => {
   const bS = stripMixMarkers(b);
   if (aS && bS && aS === bS) return true;
 
+  const baseTitle = tidalTrack.title ? normalizeTitle(tidalTrack.title) : null;
+  const versionText = candidateVersionText(tidalTrack);
+
+  // "Säurebad Deat Marotta Remix" (Beatport, bare version) vs "Säurebad [Deat
+  // Marotta Remix]" (Tidal full) both reduce to the base title "säurebad".
+  const aV = versionText ? stripTrailingVersion(a, versionText) : null;
+  if (aV && baseTitle && aV === baseTitle) return true;
+  const bV = versionText ? stripTrailingVersion(b, versionText) : null;
+  if (aV && bV && aV === bV) return true;
+
+  return false;
+};
+
+const titleMatch = (beatportName, tidalTrack) => {
+  if (sameStrictTitle(beatportName, tidalTrack)) return true;
+
+  const a = normalizeTitle(beatportName);
+  const b = normalizeTitle(tidalTrack.fullTitle);
+  if (!a || !b) return false;
+
   // Fuzzy fallback only for reasonably short titles.
   if (a.length > 60 || b.length > 60) return false;
 
+  const aS = stripMixMarkers(a);
+  const bS = stripMixMarkers(b);
   const fuse = new Fuse([bS || b], { includeScore: true, threshold: 0.05 });
   const [result] = fuse.search(aS || a);
   return Boolean(result && result.score !== undefined && result.score <= 0.05);
 };
 
-const isExactTitle = (name, track) => {
-  const a = normalizeTitle(name);
-  const b = normalizeTitle(track.fullTitle);
-  if (a && b && a === b) return true;
-  const aS = stripMixMarkers(a);
-  const bS = stripMixMarkers(b);
-  return Boolean(aS && bS && aS === bS);
-};
+const isExactTitle = (name, track) => sameStrictTitle(name, track);
 
 // Cache search results by normalized query (dedupes in-flight requests too).
 const searchCache = new Map();
