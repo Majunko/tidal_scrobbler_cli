@@ -20,7 +20,7 @@ const CONCURRENCY = 3;
 
 const normalizeTitle = normalizeTitleKey;
 
-const MIX_KEYWORDS = /(mix|edit|remix|version|dub|reprise|rework|acapella|instrumental|radio|extended|club|original|vocal|bonus|intro|outro|clean|dirty)/i;
+const MIX_KEYWORDS = /(mix|edit|remix|version|dub|reprise|rework|repaint|acapella|instrumental|radio|extended|club|original|vocal|bonus|intro|outro|clean|dirty)/i;
 
 // Clean a search term for the Tidal API: strip invisible chars (zero-width
 // spaces etc.) so "Uväll" doesn't turn into a query with hidden bytes.
@@ -52,20 +52,27 @@ const candidateVersionText = (track) => {
 };
 
 // Removes the candidate's known version text from the end of a normalized title
-// key, tolerating " - ", a space, or square brackets as separators. This bridges
-// Beatport titles that append the version bare ("Säurebad Deat Marotta Remix")
-// with Tidal's parenthesized/attribute form ("Säurebad (Deat Marotta Remix)").
-// Returns null when the given version can't be stripped from the title.
+// key, tolerating " - ", a space, or square brackets as separators. Strips
+// repeatedly so a version appended BOTH bare and parenthesized ("Full Method
+// Jacket (Chris Liebing Repaint) Chris Liebing Repaint") fully reduces to the
+// base title. This bridges Beatport titles that append the version bare
+// ("Säurebad Deat Marotta Remix") with Tidal's parenthesized/attribute form
+// ("Säurebad (Deat Marotta Remix)"). Returns null when the given version can't
+// be stripped from the title.
 const stripTrailingVersion = (titleKey, versionText) => {
   if (!versionText) return null;
   const v = normalizeTitle(versionText);
   if (!v || titleKey === v) return null;
-  const matches = titleKey.match(
-    new RegExp(`(?:\\s*[-–—:\\s]+)?\\[?\\s*${escapeRegExp(v)}\\s*\\]?$`)
-  );
-  if (!matches) return null;
-  const remainder = titleKey.slice(0, matches.index).trim();
-  return remainder && remainder !== titleKey ? remainder : null;
+  const pattern = new RegExp(`(?:\\s*[-–—:\\s]+)?\\[?\\s*${escapeRegExp(v)}\\s*\\]?$`);
+  let current = titleKey;
+  while (true) {
+    const matches = current.match(pattern);
+    if (!matches) break;
+    const remainder = current.slice(0, matches.index).trim();
+    if (!remainder || remainder === current) break;
+    current = remainder;
+  }
+  return current !== titleKey ? current : null;
 };
 
 // Strict title comparison using every signal we trust: raw normalized keys,
