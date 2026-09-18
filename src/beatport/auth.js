@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { updateEnvVariable } from './utils.js';
+import { updateEnvVariable } from '../utils/env.js';
 
 export const API_BASE_URL = 'https://api.beatport.com/v4';
 const TOKEN_URL = `${API_BASE_URL}/auth/o/token/`;

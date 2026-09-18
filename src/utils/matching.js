@@ -37,7 +37,31 @@ export const removeDiacritics = (str = '') => {
 /**
  * Normalize brackets/parentheses in titles (e.g. '(' → '[' and ')' → ']')
  */
-export const normalize = (title = '') => String(title).replace(/[\[\(]/g, '[').replace(/[\]\)]/g, ']');
+const bracketNormalize = (title = '') => String(title).replace(/[\[\(]/g, '[').replace(/[\]\)]/g, ']');
+
+// Canonical key used for storage and duplicate detection: diacritics/invisible
+// chars stripped, NFKC-normalized, whitespace collapsed, lowercased.
+export const normalize = (value) =>
+  removeDiacritics(String(value ?? ''))
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+
+// Version markers treated as interchangeable when comparing titles (used by both
+// titleNormalize and the matcher), so "(Radio Edit)" == "[radio edit]" == "Radio
+// Edit" and "X (Remix)" == "X Remix" all collapse to the same key.
+const VERSION_MARKERS_TO_STRIP = /\s*[\[\(]\s*(radio edit|single edit|album version|radio mix)\s*[\]\)]\s*/gi;
+
+// Title key used for dedup: on top of `normalize`, unifies version-marker
+// formatting so "(Radio Edit)" == "[radio edit]" == "Radio Edit" and
+// "X (Remix)" == "X Remix". Remaining parentheses/brackets are dropped but
+// their content kept, so "(Original Mix)" vs "(Extended Mix)" stay distinct.
+export const titleNormalize = (value) =>
+  normalize(value)
+    .replace(VERSION_MARKERS_TO_STRIP, ' ')
+    .replace(/[\[\](){}]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 
 // Normalize artist string: split by comma/ampersand, trim, sort, join
 const normalizeArtist = (artist) => {
@@ -70,7 +94,7 @@ export const normalizeArtistSet = (artist) => {
 // Canonical title key: diacritics/brackets normalized, whitespace collapsed,
 // lowercased. Used for exact title comparisons and duplicate detection.
 export const normalizeTitleKey = (title = '') =>
-  normalize(removeDiacritics(String(title)))
+  bracketNormalize(removeDiacritics(String(title)))
     .replace(/\s+/g, ' ')
     .trim()
     .toLowerCase();
@@ -93,19 +117,14 @@ export const isArtistSetMatch = (aSet, bSet) => {
   return isSubset(aSet, bSet) || isSubset(bSet, aSet);
 }
 
-// Version markers treated as interchangeable when comparing titles (mirrors the
-// strip list in src/sql.js titleNormalize, so listened-vs-scrabbled variants like
-// "Gobble (2026 Re-Edit)" vs "Gobble 2026 Re-Edit" collapse to the same key).
-const VERSION_MARKERS_TO_STRIP = /\s*[\[\(]\s*(radio edit|single edit|album version|radio mix)\s*[\]\)]\s*/gi;
-
 // Precompute the title variants used for matching (mirrors the original
 // isFuzzyTitleMatch checks): raw, bracket/parenthesis normalized, diacritics
-// removed, and version-markers/parentheses stripped (aligned with sql.js).
+// removed, and version-markers/parentheses stripped (aligned with titleNormalize).
 const titleVariants = (title) => {
   const t = String(title ?? '');
   return {
     raw: t,
-    bracketNorm: normalize(t),
+    bracketNorm: bracketNormalize(t),
     noDiac: removeDiacritics(t),
     markerNorm: removeDiacritics(t)
       .replace(VERSION_MARKERS_TO_STRIP, ' ')

@@ -1,4 +1,5 @@
-import { sleep, updateEnvVariable, printSameLine, chunkArray } from './utils.js';
+import { sleep, printSameLine, chunkArray } from '../utils/helpers.js';
+import { updateEnvVariable } from '../utils/env.js';
 
 const API_BASE_URL = 'https://openapi.tidal.com/v2';
 
@@ -215,6 +216,32 @@ export async function getPlaylistItems(playlistId) {
 export async function getPlaylistTrackIds(playlistId) {
   const items = await getPlaylistItems(playlistId);
   return new Set(items.map((i) => String(i.id)));
+}
+
+/**
+ * Returns all playlists owned by the authenticated user (including their
+ * private ones), in playlist order, following the pagination links.
+ * Each item: { id, title, privacy, type }.
+ */
+export async function getUserPlaylists() {
+  const playlists = [];
+  let nextPath = '/playlists?filter[owners.id]=me&countryCode=US&locale=en-US';
+  let page = 0;
+  while (nextPath && page < 50) {
+    const data = await tidalFetch(nextPath);
+    for (const entry of data?.data || []) {
+      const attrs = entry.attributes || {};
+      playlists.push({
+        id: entry.id,
+        title: attrs.name || '(untitled)',
+        privacy: attrs.accessType || 'unknown',
+        type: attrs.playlistType || '',
+      });
+    }
+    nextPath = data?.links?.next || null;
+    page++;
+  }
+  return playlists;
 }
 
 /**

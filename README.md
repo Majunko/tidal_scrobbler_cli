@@ -3,6 +3,24 @@
 This project checks if a track has already been listened to on Tidal by leveraging your scrobble
 history (Last.fm or ListenBrainz) and the Tidal API. It is built using Node.js.
 
+## Quickstart
+
+```bash
+npm install
+npm run setup        # interactive wizard
+npm start
+```
+
+`npm run setup` guides you through everything: it creates `.env` from `.env.example`, asks for your
+Tidal app credentials, runs the OAuth authorization (opening the browser for you), lists your
+playlists so you can pick the target one, and configures a scrobbling source (ListenBrainz or
+Last.fm). Supabase and Beatport setup are optional steps. Press **Enter** to keep an existing value,
+press **Ctrl+C** to cancel.
+
+To only validate an existing configuration without any prompts: `npm run setup:check`.
+
+The steps below describe the same process manually if you prefer to skip the wizard.
+
 ## Prerequisites
 
 To use this project, you need to:
@@ -39,12 +57,72 @@ The script needs the history of tracks you already listened to. You can use **La
 **Priority**: if `LISTENBRAINZ_USERNAME` is set, ListenBrainz is used and Last.fm is ignored. If
 not, Last.fm is used. If no source is configured, the script exits with an error.
 
-**Database**: both sources share the same SQLite database (`SCROBBLE_DATABASE_NAME`, e.g.
-`scrobbles.db`). It stores *unique* listened tracks (deduplicated by normalized artist/title), so
-how many times you listened to a track does not matter. The first run of a source does a full
-backfill of its history; later runs are incremental. In very old setups the database was called
-`lastfm.db` and the variable was `LASTFM_DATABASE_NAME` — rename the file and variable to
-`scrobbles.db` / `SCROBBLE_DATABASE_NAME`.
+**Database**: both sources share one database (local SQLite by default). It stores *unique* listened
+tracks (deduplicated by normalized artist/title), so how many times you listened to a track does not
+matter. The first run of a source does a full backfill of its history; later runs are incremental. See
+[Database backend](#database-backend) for how to use Supabase instead.
+
+## Database backend
+
+The script stores your listening history in a single backend, chosen with `DB_BACKEND` in `.env`:
+
+- **`sqlite` (default)** — a local file (`SCROBBLE_DATABASE_NAME`, e.g. `scrobbles.db`), zero setup.
+  In very old setups the database was called `lastfm.db` and the variable was `LASTFM_DATABASE_NAME` —
+  rename the file and variable to `scrobbles.db` / `SCROBBLE_DATABASE_NAME`.
+- **`supabase`** — a hosted Postgres project, so your history is available from anywhere.
+
+### Option 1: local SQLite (default)
+
+```env
+DB_BACKEND='sqlite'
+SCROBBLE_DATABASE_NAME='scrobbles.db'
+```
+
+### Option 2: Supabase
+
+1. Create a project at https://supabase.com (free tier is fine).
+2. In the Supabase dashboard open **SQL Editor**, paste the contents of `supabase/schema.sql` and run
+   it once. This creates the `tracks` and `meta` tables (with RLS enabled so only the service role can
+   touch them).
+3. In **Settings → API**, copy the **Project URL** and the **service_role** key, then set in `.env`:
+   ```env
+   DB_BACKEND='supabase'
+   SUPABASE_URL='https://<project-ref>.supabase.co'
+   SUPABASE_SERVICE_ROLE_KEY='<your-service-role-key>'
+   ```
+4. Already have local history? See [Migrate to Supabase](#migrate-to-supabase).
+
+> The service role key can access/edit everything in your project — keep it out of any code that runs
+> in a browser and treat it like a password.
+
+### Migrate to Supabase
+
+To copy an existing local SQLite history (`scrobbles.db`) into Supabase (idempotent — safe to run
+more than once):
+
+```bash
+npm run migrate-to-supabase        # real run
+npm run migrate-to-supabase -- --dry-run   # preview only
+```
+
+If you **don't** want to run `supabase/schema.sql` by hand, also set `SUPABASE_DB_URL` in `.env` to
+the project's Postgres connection string:
+
+1. In the dashboard click the **Connect** button (the wire/plug icon in the top bar).
+2. Go to **PostgreSQL → Connection string → URI**.
+3. Select the project **Direct connection** and set **Connection method** to **Transaction pooler**.
+4. Copy the URI — it already includes the database password and looks like:
+
+```env
+SUPABASE_DB_URL='postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:6543/postgres'
+```
+
+The migration script then creates the tables automatically using that connection before copying the
+data. The transaction pooler resolves over IPv4 (a direct `db.<project-ref>.supabase.co:5432`
+connection can be IPv6-only and unreachable on some networks). The reload of the PostgREST schema
+cache happens automatically.
+
+Afterwards set `DB_BACKEND='supabase'` in `.env` and the app keeps using the same history.
 
 ## Setup
 
@@ -54,8 +132,15 @@ backfill of its history; later runs are incremental. In very old setups the data
    cd tidal_scrobbler
    ```
 
-2. Set the environment variables in the `.env` file:
+2. Run the interactive wizard (recommended) to create `.env` and configure everything:
    ```bash
+   npm install
+   npm run setup
+   ```
+
+   Or configure it manually:
+   ```bash
+   # Set the environment variables in the .env file:
    cp .env.example .env
    ```
 

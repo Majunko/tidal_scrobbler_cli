@@ -1,9 +1,9 @@
 import fs from 'fs';
 import { pathToFileURL } from 'url';
-import { fetchTopTracks } from './beatport_api.js';
-import { connectDB, executeSQL, existsAllTables } from './sql.js';
-import { compareSongsAlreadyListened } from './track_matcher.js';
-import { parseBeatportLine } from './utils.js';
+import { fetchTopTracks } from './beatport/api.js';
+import { createStorage } from './storage/factory.js';
+import { compareSongsAlreadyListened } from './utils/matching.js';
+import { parseBeatportLine } from './utils/helpers.js';
 
 const textFileName = 'beatport_scraped.txt';
 const notFoundFileName = 'beatport_pending.txt';
@@ -39,7 +39,7 @@ const trackKey = (track) => `${track.name}|||${track.artist}`;
  * Fetches the top 100 tracks of a Beatport genre via the official API and
  * RETURNS an array of track objects
  */
-export async function scrapeGenre(genreUrl) {
+async function scrapeGenre(genreUrl) {
     const genreId = extractGenreId(genreUrl);
 
     if (!genreId) {
@@ -100,7 +100,7 @@ async function runScraper() {
 }
 
 async function runBeatportCheck() {
-    let db;
+    let storage;
     try {
         if (!fs.existsSync(textFileName)) {
             console.log(`No ${textFileName} file found. Skipping Beatport track check.`);
@@ -118,10 +118,11 @@ async function runBeatportCheck() {
             return;
         }
 
-        db = await connectDB();
-        await existsAllTables(db);
+        storage = createStorage();
+        await storage.connect();
+        await storage.ensureSchema();
 
-        const dbTracks = await executeSQL(db, 'SELECT name, artist FROM tracks');
+        const dbTracks = await storage.getTracks();
 
         const foundTracks = compareSongsAlreadyListened(beatportTracks, dbTracks);
         const foundKeys = new Set(foundTracks.map(trackKey));
@@ -139,7 +140,7 @@ async function runBeatportCheck() {
     } catch (err) {
         console.error('Failed to check Beatport tracks:', err.message);
     } finally {
-        if (db) db.close();
+        if (storage) await storage.close();
     }
 }
 

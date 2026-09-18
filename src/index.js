@@ -1,27 +1,19 @@
 import { writeFileSync } from 'fs';
-import {
-  existsAllTables,
-  executeSQL,
-  insertTrack,
-  connectDB,
-  checkTrackExists,
-  getImportCursor,
-  setImportCursor,
-} from './sql.js';
+import { createStorage } from './storage/factory.js';
 import {
   sleep,
   printSameLine,
-  checkEnvVariables,
   sortAndJoinArtists,
   getLocalTimestamp,
   deleteFile,
   chunkArray,
-} from './utils.js';
-import { tidalFetch, getPlaylistItems } from './tidal_api.js';
+} from './utils/helpers.js';
+import { checkEnvVariables } from './utils/env.js';
+import { tidalFetch, getPlaylistItems } from './tidal/api.js';
 import {
   findDuplicateTracks,
   compareSongsAlreadyListened,
-} from './track_matcher.js';
+} from './utils/matching.js';
 
 // --- TIDAL ---
 const tidalPlaylistId = process.env.TIDAL_PLAYLIST_ID;
@@ -193,27 +185,13 @@ async function getListenbrainzListeningHistory(fromEpoch) {
   return { tracks: allFetchedTracks, complete };
 }
 
-async function saveHistoryToDatabase(db, tracks, label) {
+async function saveHistoryToDatabase(storage, tracks, label) {
   // Save from oldest to newest
   const reversedTracks = [...tracks].reverse();
-  let insertedCount = 0;
 
   console.log(`Saving ${label} history to database (oldest to newest)...`);
-  db.exec('BEGIN');
-  try {
-    for (const track of reversedTracks) {
-      const exists = await checkTrackExists(db, track.artist, track.name);
-      if (!exists) {
-        await insertTrack(db, track);
-        insertedCount++;
-      }
-    }
-    db.exec('COMMIT');
-  } catch (err) {
-    db.exec('ROLLBACK');
-    console.error('Failed to save tracks:', err.message);
-    throw err;
-  }
+
+  const insertedCount = await storage.upsertTracks(reversedTracks);
 
   console.log(`Total new ${label} tracks added to the database: ${insertedCount}`);
 }
@@ -351,8 +329,9 @@ async function removeTracksFromTidalPlaylist(trackIds, label = 'track') {
 
 (async () => {
   checkEnvVariables();
-  const db = await connectDB();
-  await existsAllTables(db);
+  const storage = createStorage();
+  await storage.connect();
+  await storage.ensureSchema();
 
   // Source selection: ListenBrainz takes priority when configured
   const useListenbrainz = !!listenbrainzUserName;
@@ -363,7 +342,7 @@ async function removeTracksFromTidalPlaylist(trackIds, label = 'track') {
     console.log('ListenBrainz is configured. Last.fm is ignored (ListenBrainz takes priority).\n');
   }
 
-  const cursor = await getImportCursor(db, sourceKey);
+  const cursor = await storage.importCursor(sourceKey);
   const fromEpoch = cursor != null ? cursor : 0;
 
   if (fromEpoch > 0) {
@@ -376,16 +355,16 @@ async function removeTracksFromTidalPlaylist(trackIds, label = 'track') {
     ? await getListenbrainzListeningHistory(fromEpoch)
     : await getLastfmListeningHistory(fromEpoch);
 
-  await saveHistoryToDatabase(db, result.tracks, sourceLabel);
+  await saveHistoryToDatabase(storage, result.tracks, sourceLabel);
 
   // Only advance the cursor when the fetch completed successfully
   if (result.complete) {
     if (result.tracks.length > 0) {
       const maxEpoch = Math.max(...result.tracks.map((t) => Math.floor(new Date(t.date).getTime() / 1000)));
-      await setImportCursor(db, sourceKey, maxEpoch);
+      await storage.setImportCursor(sourceKey, maxEpoch);
     } else {
       // No history at all: set cursor to now so we don't re-backfill every run
-      await setImportCursor(db, sourceKey, Math.floor(Date.now() / 1000));
+      await storage.setImportCursor(sourceKey, Math.floor(Date.now() / 1000));
     }
   } else {
     console.log('Fetch did not complete; import cursor left unchanged.');
@@ -396,7 +375,7 @@ async function removeTracksFromTidalPlaylist(trackIds, label = 'track') {
   await getTidalPlaylistIds();
 
   // Fetch listened songs from the database for comparison
-  let allListenedTracksFromDB = await executeSQL(db, `SELECT name, artist FROM tracks`);
+  let allListenedTracksFromDB = await storage.getTracks();
 
   // Sort and join artists, otherwise artists are an array and we need it to be a string
   tidalPlaylistSongs = sortAndJoinArtists(tidalPlaylistSongs);
@@ -443,9 +422,5 @@ async function removeTracksFromTidalPlaylist(trackIds, label = 'track') {
 
   console.log(`\nPlaylist cleanup summary: ${listenedTrackIds.length} listened, ${duplicateTrackIds.length} duplicates.`);
 
-  db.close((err) => {
-    if (err) {
-      console.error('Failed to close the database connection:', err.message);
-    }
-  });
+  await storage.close();
 })();

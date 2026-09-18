@@ -1,4 +1,5 @@
-import { writeFileSync, readFileSync, existsSync, unlinkSync } from 'fs';
+import { existsSync, unlinkSync } from 'fs';
+import { spawn } from 'child_process';
 import crypto from 'crypto';
 
 export const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -40,44 +41,31 @@ export const printSameLine = (text) => {
   process.stdout.write(text);
 }
 
-export const checkEnvVariables = () => {
-  const requiredEnvVariables = [
-    'TIDAL_CLIENT_ID',
-    'TIDAL_CLIENT_SECRET',
-    'TIDAL_PLAYLIST_ID',
-    'SCROBBLE_DATABASE_NAME'
-  ];
-
-  const lastfmConfigured = !!(process.env.LASTFM_USERNAME && process.env.LASTFM_API_KEY);
-  const listenbrainzConfigured = !!process.env.LISTENBRAINZ_USERNAME;
-
-  if (!lastfmConfigured && !listenbrainzConfigured) {
-    requiredEnvVariables.push('LASTFM_USERNAME/LASTFM_API_KEY or LISTENBRAINZ_USERNAME');
+/**
+ * Tries to open a URL in the system browser. Never throws — failures are
+ * silently ignored (users can always paste the URL manually).
+ */
+const trySpawn = (cmd, args) => {
+  let child;
+  try {
+    child = spawn(cmd, args, { stdio: 'ignore', detached: true });
+  } catch {
+    return;
   }
-
-  const missingVariables = requiredEnvVariables.filter(variable => !process.env[variable]);
-
-  if (missingVariables.length > 0) {
-    console.error(`Missing environment variables: ${missingVariables.join(', ')}`);
-    process.exit(1);
-  }
+  // A missing binary (e.g. xdg-open not installed) surfaces as an async
+  // 'error' event, not a sync throw — swallow it so the caller never crashes.
+  child.on('error', () => {});
+  child.unref();
 }
 
-export const updateEnvVariable = (key, newValue) => {
-  const envFilePath = '.env';
-  let envFileContent = readFileSync(envFilePath, 'utf8');
-
-  // Use a regular expression to find and replace the key-value pair
-  const regex = new RegExp(`^${key}=.*`, 'm');
-  if (regex.test(envFileContent)) {
-      envFileContent = envFileContent.replace(regex, `${key}='${newValue}'`);
-      console.log(`Updated ${key}\n`);
+export const openBrowser = (url) => {
+  if (process.platform === 'darwin') {
+    trySpawn('open', [url]);
+  } else if (process.platform === 'win32') {
+    trySpawn('cmd', ['/c', 'start', '', url]);
   } else {
-      throw new Error(`Key ${key} not found in .env file.`);
+    trySpawn('xdg-open', [url]);
   }
-
-  // Write the updated content back to the .env file
-  writeFileSync(envFilePath, envFileContent);
 }
 
 /**

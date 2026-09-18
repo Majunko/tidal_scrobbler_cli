@@ -1,6 +1,6 @@
 import axios from 'axios';
-import { stripInvisible } from './track_matcher.js';
-import { obtainToken, clearCachedToken, API_BASE_URL, USER_AGENT } from './beatport_auth.js';
+import { stripInvisible } from '../utils/matching.js';
+import { obtainToken, clearCachedToken, API_BASE_URL, USER_AGENT } from './auth.js';
 
 function normalizeText(value) {
     return stripInvisible(String(value ?? '')).replace(/\s+/g, ' ').trim();

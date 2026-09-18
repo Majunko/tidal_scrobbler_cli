@@ -1,9 +1,9 @@
 import fs from 'fs';
 import Fuse from 'fuse.js';
 import { pathToFileURL } from 'url';
-import { searchTracks, getTrackDetails, addTracksToPlaylist, getPlaylistTrackIds, getRequestCount } from './tidal_api.js';
-import { normalizeArtistSet, isArtistSetMatch, normalizeTitleKey, removeDiacritics, stripInvisible } from './track_matcher.js';
-import { printSameLine, parseBeatportLine } from './utils.js';
+import { searchTracks, getTrackDetails, addTracksToPlaylist, getPlaylistTrackIds, getRequestCount } from './tidal/api.js';
+import { normalizeArtistSet, isArtistSetMatch, normalizeTitleKey, removeDiacritics, stripInvisible } from './utils/matching.js';
+import { printSameLine, parseBeatportLine } from './utils/helpers.js';
 
 const SOURCE_FILE = 'beatport_pending.txt';
 const SCRAPED_FILE = 'beatport_scraped.txt';
@@ -14,7 +14,7 @@ const NOT_FOUND_FILE = 'tidal_not_found.txt';
 const dryRun = process.argv.includes('--dry-run');
 const playlistId = process.env.TIDAL_PLAYLIST_ID;
 
-// Tracks are processed in parallel, but the shared rate limiter in tidal_api.js
+// Tracks are processed in parallel, but the shared rate limiter in tidal/api.js
 // keeps the total request rate within Tidal's limits.
 const CONCURRENCY = 3;
 

@@ -11,10 +11,15 @@
     "beatport": "node --env-file=.env src/beatport.js",
     "tidal-migrate": "node --env-file=.env src/tidal_migrate.js",
     "tidal-migrate:dry": "node --env-file=.env src/tidal_migrate.js --dry-run",
-    "tidal-oauth": "node --env-file=.env src/tidal_oauth.js"
+    "tidal-oauth": "node --env-file=.env src/tidal/oauth.js",
+    "setup": "node src/setup.js",
+    "setup:check": "node src/setup.js --check",
+    "migrate-to-supabase": "node --env-file=.env src/migrate_to_supabase.js"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.116.0",
     "axios": "^1.19.0",
-    "fuse.js": "^7.5.0"
+    "fuse.js": "^7.5.0",
+    "pg": "^8.23.0"
   }
 }
